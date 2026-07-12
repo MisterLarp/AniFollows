@@ -916,6 +916,7 @@ export async function fetchUserByName(
   username: string,
   token:    string,
 ): Promise<RawUserNode> {
+  console.log(`[AniFollows] Looking up user: "${username}"`);
   const data = await gql<UserByNameResult>(
     USER_BY_NAME_QUERY,
     { name: username },

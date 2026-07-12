@@ -19,8 +19,12 @@ export const NetworkFollow: React.FC<NetworkFollowProps> = ({ onStart, onCancel 
     const match = cleaned.match(/(?:anilist\.co\/user\/|^)([a-zA-Z0-9_]+)(?:\/|$)/i);
     if (match && match[1]) {
       cleaned = match[1];
+    } else {
+      // If it wasn't a full URL, ensure absolutely no hidden characters (like zero-width spaces) are included
+      cleaned = cleaned.replace(/[^a-zA-Z0-9_]/g, '');
     }
 
+    if (!cleaned) return;
     onStart(cleaned, mode);
   };
 
