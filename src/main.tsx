@@ -283,7 +283,7 @@ function App() {
 
   // Effect for network follow
   useEffect(() => {
-    if (state.status !== "network_following" || !token) return;
+    if (state.status !== "network_following" || !state.targetUsername || !token) return;
     if (state.phase === "Network follow session complete.") return;
 
     let cancelled = false;
@@ -337,7 +337,7 @@ function App() {
 
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.status]);
+  }, [state.status, state.status === "network_following" ? state.targetUsername : ""]);
 
 
   if (!token) {
