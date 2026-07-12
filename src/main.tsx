@@ -21,13 +21,14 @@ import { Toolbar } from "./components/Toolbar";
 import { Unfollowing } from "./components/Unfollowing";
 import { AuthScreen } from "./components/AuthScreen";
 import { NetworkFollow } from "./components/NetworkFollow";
+import { TargetedEngagement } from "./components/TargetedEngagement";
 import { Timings } from "./model/timings";
 import { loadWhitelist, saveWhitelist, loadTimings, saveTimings } from "./utils/whitelist-manager";
 import { getRecentFollows } from "./utils/follow-history-manager";
 import { getUnfollowCandidates } from "./utils/auto-unfollow-logic";
 import { recordScriptRun, getSessionStats } from "./utils/session-guard";
 import { getStoredToken, loadOrFetchViewer, getStoredViewer } from "./utils/anilist-auth";
-import { executeBatchedActions, fetchAllFollowers, fetchAllFollowing, fetchUserByName, mergeFollowLists, runEngagementSession, runNetworkFollowSession, sleep } from "./utils/anilist-api";
+import { executeBatchedActions, fetchAllFollowers, fetchAllFollowing, fetchRecentLikers, fetchUserByName, mergeFollowLists, runEngagementSession, runNetworkFollowSession, runTargetedEngagementSession, sleep } from "./utils/anilist-api";
 
 let scanningPaused = false;
 
@@ -340,6 +341,86 @@ function App() {
   }, [state.status, state.status === "network_following" ? state.targetUsername : ""]);
 
 
+  // Effect for Targeted Engagement
+  useEffect(() => {
+    if (state.status !== "targeted_engagement" || !state.phase || !token) return;
+    if (state.phase === "Targeted engagement session complete.") return;
+
+    let cancelled = false;
+
+    const runTargeted = async () => {
+      const viewer = getStoredViewer();
+      if (!viewer) return;
+
+      try {
+        let targetUsers: readonly any[] = [];
+
+        setState(prev => prev.status === 'targeted_engagement' ? { ...prev, phase: "Resolving target users..." } : prev);
+
+        if (state.targetGroup === 'followers') {
+          targetUsers = await fetchAllFollowers(viewer.id, token);
+        } else if (state.targetGroup === 'following') {
+          targetUsers = await fetchAllFollowing(viewer.id, token);
+        } else if (state.targetGroup === 'mutuals') {
+          const followers = await fetchAllFollowers(viewer.id, token);
+          const following = await fetchAllFollowing(viewer.id, token);
+          const followingIds = new Set(following.map(u => u.id));
+          targetUsers = followers.filter(u => followingIds.has(u.id));
+        } else if (state.targetGroup === 'non_mutuals') {
+          const followers = await fetchAllFollowers(viewer.id, token);
+          const following = await fetchAllFollowing(viewer.id, token);
+          const followerIds = new Set(followers.map(u => u.id));
+          targetUsers = following.filter(u => !followerIds.has(u.id));
+        } else if (state.targetGroup === 'reciprocal') {
+          targetUsers = await fetchRecentLikers(
+            state.config.reciprocalHours || 24,
+            state.config.reciprocalMinLikes || 2,
+            token
+          );
+        }
+
+        // Apply maxUsers limit
+        targetUsers = targetUsers.slice(0, state.config.maxUsers);
+
+        if (cancelled) return;
+
+        await runTargetedEngagementSession(
+          targetUsers,
+          {
+            activitiesPerUser: state.config.activitiesPerUser,
+            includeMessages: state.config.includeMessages,
+          },
+          {
+            betweenActions: timings.timeBetweenActions,
+            afterFiveBatch: timings.timeAfterFiveActions
+          },
+          token,
+          (progress) => {
+            if (cancelled) return;
+            setState(prev => prev.status === 'targeted_engagement' ? {
+              ...prev,
+              phase: progress.phase,
+              progress: {
+                processedUsers: progress.processedUsers,
+                totalUsers: progress.totalUsers,
+                likedActivities: progress.likedActivities,
+                skippedActivities: progress.skippedActivities
+              }
+            } : prev);
+          },
+          () => cancelled
+        );
+      } catch (err) {
+        setToast({ show: true, text: `Error: ${err instanceof Error ? err.message : String(err)}` });
+      }
+    };
+
+    runTargeted();
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.status, state.status === "targeted_engagement" ? state.phase : ""]);
+
   if (!token) {
     return <AuthScreen onTokenSubmitted={handleTokenSubmitted} />;
   }
@@ -422,12 +503,12 @@ function App() {
             onScan={onScan} 
             onEngage={() => setState({ status: 'engaging', phase: 'Starting engagement...', liked: 0, followed: 0, skipped: 0 })}
             onNetworkFollow={() => setState({ status: 'network_following', targetUsername: '', mode: 'followers', phase: '', followed: 0, skipped: 0, total: 0 })}
+            onTargetedEngagement={() => setState({ status: 'targeted_engagement', phase: '', targetGroup: 'followers', config: { maxUsers: 50, activitiesPerUser: 2, includeMessages: false, reciprocalHours: 24, reciprocalMinLikes: 2 }, progress: { processedUsers: 0, totalUsers: 0, likedActivities: 0, skippedActivities: 0 } })}
           />
         )}
         
         {state.status === "network_following" && state.targetUsername === '' && (
           <NetworkFollow 
-            onCancel={() => setState({ status: "initial" })}
             onStart={(target, mode) => setState({
               status: "network_following",
               targetUsername: target,
@@ -437,9 +518,29 @@ function App() {
               skipped: 0,
               total: 0
             })}
+            onCancel={() => setState({ status: 'initial' })}
           />
         )}
 
+        {state.status === "targeted_engagement" && (
+          <TargetedEngagement 
+            state={state}
+            onStart={(targetGroup, config) => setState({
+              status: 'targeted_engagement',
+              targetGroup,
+              config,
+              phase: 'Initializing...',
+              progress: {
+                processedUsers: 0,
+                totalUsers: 0,
+                likedActivities: 0,
+                skippedActivities: 0
+              }
+            })}
+            onCancel={() => setState({ status: 'initial' })}
+          />
+        )}
+        
         {state.status === "network_following" && state.targetUsername !== '' && (
           <div className="network-follow-status panel">
             <h2>Following {state.targetUsername}'s {state.mode}</h2>

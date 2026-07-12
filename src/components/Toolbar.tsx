@@ -137,8 +137,8 @@ export const Toolbar = ({
           type="text"
           className="search-bar"
           placeholder="Search..."
-          disabled={state.status === "initial" || state.status === "engaging" || state.status === "network_following"}
-          value={state.status === "initial" || state.status === "engaging" || state.status === "network_following" ? "" : state.searchTerm}
+          disabled={state.status === "initial" || state.status === "engaging" || state.status === "network_following" || state.status === "targeted_engagement"}
+          value={state.status === "initial" || state.status === "engaging" || state.status === "network_following" || state.status === "targeted_engagement" ? "" : state.searchTerm}
           onChange={e => {
             if (state.status === "scanning" || state.status === "unfollowing") {
               setState({

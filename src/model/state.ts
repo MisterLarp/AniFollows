@@ -121,6 +121,35 @@ type NetworkFollowingState = {
   readonly total:    number;
 };
 
+// ── Targeted Engagement ────────────────────────────────────────────────────────
+
+type TargetedEngagementState = {
+  readonly status: 'targeted_engagement';
+  
+  /** Current UI phase or description. */
+  readonly phase: string;
+  
+  readonly targetGroup: 'followers' | 'following' | 'mutuals' | 'non_mutuals' | 'reciprocal';
+  
+  /** Configuration for the session. */
+  readonly config: {
+    maxUsers: number;
+    activitiesPerUser: number;
+    includeMessages: boolean;
+    // Specific to reciprocal
+    reciprocalHours?: number;
+    reciprocalMinLikes?: number;
+  };
+
+  /** Real-time progress. */
+  readonly progress: {
+    processedUsers: number;
+    totalUsers: number;
+    likedActivities: number;
+    skippedActivities: number;
+  };
+};
+
 // ── Union Export ──────────────────────────────────────────────────────────────
 
 export type State =
@@ -128,7 +157,8 @@ export type State =
   | ScanningState
   | UnfollowingState
   | EngagingState
-  | NetworkFollowingState;
+  | NetworkFollowingState
+  | TargetedEngagementState;
 
 // Re-export individual state types for components that need them
 export type {
@@ -137,4 +167,5 @@ export type {
   UnfollowingState,
   EngagingState,
   NetworkFollowingState,
+  TargetedEngagementState,
 };

@@ -757,10 +757,13 @@ const GLOBAL_ACTIVITIES_QUERY = `
 
 /** Raw shape of a supported activity as returned by the query. */
 export interface RawActivityNode {
-  __typename:  'ListActivity' | 'TextActivity';
+  __typename:  'ListActivity' | 'TextActivity' | 'MessageActivity';
   id:          number;
-  userId:      number;
-  likeCount:   number;
+  type?:       string;
+  isLiked?:    boolean;
+  createdAt?:  number;
+  userId?:     number;
+  likeCount?:  number;
   user?: {
     id:     number;
     name:   string;
@@ -771,7 +774,7 @@ export interface RawActivityNode {
 interface GlobalActivitiesPageData {
   Page: {
     pageInfo: PageInfo;
-    activities: readonly (RawActivityNode | { __typename: 'MessageActivity' })[];
+    activities: readonly RawActivityNode[];
   };
 }
 
@@ -794,7 +797,10 @@ export async function fetchGlobalActivitiesPage(
   );
 
   const activities = data.Page.activities.filter(
-    (a): a is RawActivityNode => a.__typename === 'ListActivity' || a.__typename === 'TextActivity'
+    (a): a is RawActivityNode => 
+      a.__typename === 'ListActivity' || 
+      a.__typename === 'TextActivity' || 
+      a.__typename === 'MessageActivity'
   );
 
   return {
@@ -809,6 +815,16 @@ const TOGGLE_LIKE_MUTATION = `
   mutation ($id: Int!, $type: LikeableType!) {
     ToggleLikeV2(id: $id, type: $type) {
       ... on ListActivity {
+        id
+        likeCount
+        isLiked
+      }
+      ... on TextActivity {
+        id
+        likeCount
+        isLiked
+      }
+      ... on MessageActivity {
         id
         likeCount
         isLiked
@@ -1019,13 +1035,13 @@ export async function runEngagementSession(
       if (progress.liked >= GLOBAL_FEED_MAX_LIKES_PER_SESSION) break outer;
 
       // Filter: must meet minimum like threshold
-      if (activity.likeCount < GLOBAL_FEED_MIN_LIKES) {
+      if ((activity.likeCount ?? 0) < GLOBAL_FEED_MIN_LIKES) {
         progress.skipped++;
         continue;
       }
 
       // ── Like the activity ────────────────────────────────────────────────
-      progress.phase = `Liking activity #${activity.id} (${activity.likeCount} likes)…`;
+      progress.phase = `Liking activity #${activity.id} (${activity.likeCount ?? 0} likes)…`;
       onProgress?.({ ...progress });
 
       await doAction(`Like activity #${activity.id}`, async () => {
@@ -1221,4 +1237,199 @@ export async function runNetworkFollowSession(
 /** Returns the current rate-limit state (read-only snapshot). */
 export function getRateLimitState(): Readonly<RateLimitState> {
   return { ...rateLimitState };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 14 — Targeted Engagement Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface TargetedEngagementProgressCallback {
+  (progress: {
+    phase: string;
+    processedUsers: number;
+    totalUsers: number;
+    likedActivities: number;
+    skippedActivities: number;
+  }): void;
+}
+
+/**
+ * Fetches recent activities for a specific user.
+ */
+export async function fetchUserActivities(
+  userId: number,
+  includeMessages: boolean,
+  limit: number,
+  token: string
+): Promise<RawActivityNode[]> {
+  const query = `
+    query($userId: Int, $typeIn: [ActivityType], $perPage: Int) {
+      Page(page: 1, perPage: $perPage) {
+        activities(userId: $userId, type_in: $typeIn, sort: ID_DESC) {
+          ... on TextActivity { id type isLiked createdAt }
+          ... on ListActivity { id type isLiked createdAt }
+          ... on MessageActivity { id type isLiked createdAt }
+        }
+      }
+    }
+  `;
+  const typeIn = includeMessages ? undefined : ['TEXT', 'ANIME_LIST', 'MANGA_LIST', 'MEDIA_LIST'];
+  const variables = { userId, typeIn, perPage: limit };
+  const res = await gql<any>(query, variables, token);
+  return (res.Page.activities || []).filter((a: any) => a !== null) as RawActivityNode[];
+}
+
+/**
+ * Fetches users who have liked at least `minLikes` activities in the past `hours`.
+ */
+export async function fetchRecentLikers(
+  hours: number,
+  minLikes: number,
+  token: string
+): Promise<RawUserNode[]> {
+  const cutoffTime = Math.floor(Date.now() / 1000) - (hours * 3600);
+  const userLikes = new Map<number, { user: RawUserNode, count: number }>();
+  let page = 1;
+  let hasNext = true;
+
+  while (hasNext) {
+    const query = `
+      query($page: Int) {
+        Page(page: $page, perPage: 50) {
+          pageInfo { hasNextPage }
+          notifications(type_in: [ACTIVITY_LIKE, ACTIVITY_REPLY_LIKE]) {
+            ... on ActivityLikeNotification {
+              createdAt
+              user { id name avatar { medium } }
+            }
+            ... on ActivityReplyLikeNotification {
+              createdAt
+              user { id name avatar { medium } }
+            }
+          }
+        }
+      }
+    `;
+    const res = await gql<any>(query, { page }, token);
+    const notifications = res.Page.notifications || [];
+    hasNext = res.Page.pageInfo.hasNextPage;
+
+    let reachedCutoff = false;
+    for (const notif of notifications) {
+      if (!notif) continue;
+      if (notif.createdAt < cutoffTime) {
+        reachedCutoff = true;
+        break;
+      }
+      if (notif.user) {
+        const entry = userLikes.get(notif.user.id) || { user: notif.user, count: 0 };
+        entry.count++;
+        userLikes.set(notif.user.id, entry);
+      }
+    }
+
+    if (reachedCutoff) break;
+    
+    if (hasNext) {
+       await sleep(DEFAULT_TIME_BETWEEN_SCAN_PAGES);
+    }
+    page++;
+  }
+
+  const result: RawUserNode[] = [];
+  for (const [_, entry] of Array.from(userLikes.entries())) {
+    if (entry.count >= minLikes) {
+      result.push(entry.user);
+    }
+  }
+  return result;
+}
+
+/**
+ * Runs the targeted engagement session.
+ */
+export async function runTargetedEngagementSession(
+  targetUsers: readonly RawUserNode[],
+  config: {
+    activitiesPerUser: number;
+    includeMessages: boolean;
+  },
+  timings: Partial<BatcherTimings>,
+  token: string,
+  onProgress: TargetedEngagementProgressCallback,
+  isCancelled: () => boolean
+): Promise<void> {
+  const timing = { ...DEFAULT_BATCHER_TIMINGS, ...timings };
+  let processedUsers = 0;
+  let likedActivities = 0;
+  let skippedActivities = 0;
+  let actionCount = 0;
+
+  for (const user of targetUsers) {
+    if (isCancelled()) break;
+
+    onProgress({
+      phase: `Fetching activities for ${user.name}...`,
+      processedUsers,
+      totalUsers: targetUsers.length,
+      likedActivities,
+      skippedActivities,
+    });
+
+    try {
+      const activities = await fetchUserActivities(user.id, config.includeMessages, 25, token);
+      const unliked = activities.filter(a => !a.isLiked);
+      
+      let likedForThisUser = 0;
+      for (const activity of unliked) {
+        if (isCancelled()) break;
+        if (likedForThisUser >= config.activitiesPerUser) break;
+
+        const isFirst = actionCount === 0;
+        if (!isFirst) {
+          if (actionCount % 5 === 0) {
+            onProgress({
+              phase: 'Cooling down (5-min batch pause)...',
+              processedUsers,
+              totalUsers: targetUsers.length,
+              likedActivities,
+              skippedActivities,
+            });
+            await sleep(timing.afterFiveBatch + jitter(5_000));
+          } else {
+            await sleep(timing.betweenActions + jitter(800));
+          }
+        }
+
+        onProgress({
+          phase: `Liking activity for ${user.name}...`,
+          processedUsers,
+          totalUsers: targetUsers.length,
+          likedActivities,
+          skippedActivities,
+        });
+
+        const isNowLiked = await likeActivity(activity.id, token);
+        if (isNowLiked) {
+          likedActivities++;
+          likedForThisUser++;
+          actionCount++;
+        } else {
+          skippedActivities++;
+        }
+      }
+    } catch (err) {
+      console.error(`[TargetedEngagement] Failed processing ${user.name}:`, err);
+    }
+
+    processedUsers++;
+  }
+
+  onProgress({
+    phase: 'Targeted engagement session complete.',
+    processedUsers,
+    totalUsers: targetUsers.length,
+    likedActivities,
+    skippedActivities,
+  });
 }
