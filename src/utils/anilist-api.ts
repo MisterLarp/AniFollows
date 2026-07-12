@@ -722,9 +722,22 @@ const GLOBAL_ACTIVITIES_QUERY = `
         hasNextPage
         perPage
       }
-      activities(isFollowing: false, sort: ID_DESC) {
+      activities(isFollowing: false, sort: ID_DESC, type_in: [TEXT, MEDIA_LIST, ANIME_LIST, MANGA_LIST]) {
         __typename
         ... on ListActivity {
+          id
+          userId
+          likeCount
+          user {
+            id
+            name
+            avatar {
+              large
+              medium
+            }
+          }
+        }
+        ... on TextActivity {
           id
           userId
           likeCount
@@ -742,9 +755,9 @@ const GLOBAL_ACTIVITIES_QUERY = `
   }
 `;
 
-/** Raw shape of a ListActivity as returned by the activities query. */
-interface RawListActivity {
-  __typename:  'ListActivity';
+/** Raw shape of a supported activity as returned by the query. */
+export interface RawActivityNode {
+  __typename:  'ListActivity' | 'TextActivity';
   id:          number;
   userId:      number;
   likeCount:   number;
@@ -755,17 +768,10 @@ interface RawListActivity {
   };
 }
 
-/** Non-list activity type discriminant — we skip these. */
-interface RawOtherActivity {
-  __typename: 'TextActivity' | 'MessageActivity';
-}
-
-type RawActivity = RawListActivity | RawOtherActivity;
-
 interface GlobalActivitiesPageData {
   Page: {
     pageInfo: PageInfo;
-    activities: readonly RawActivity[];
+    activities: readonly (RawActivityNode | { __typename: 'MessageActivity' })[];
   };
 }
 
@@ -780,20 +786,20 @@ export async function fetchGlobalActivitiesPage(
   page:    number,
   token:   string,
   perPage: number = 25,
-): Promise<{ pageInfo: PageInfo; activities: readonly RawListActivity[] }> {
+): Promise<{ pageInfo: PageInfo; activities: readonly RawActivityNode[] }> {
   const data = await gql<GlobalActivitiesPageData>(
     GLOBAL_ACTIVITIES_QUERY,
     { page, perPage },
     token,
   );
 
-  const listActivities = data.Page.activities.filter(
-    (a): a is RawListActivity => a.__typename === 'ListActivity',
+  const activities = data.Page.activities.filter(
+    (a): a is RawActivityNode => a.__typename === 'ListActivity' || a.__typename === 'TextActivity'
   );
 
   return {
     pageInfo:   data.Page.pageInfo,
-    activities: listActivities,
+    activities: activities,
   };
 }
 
