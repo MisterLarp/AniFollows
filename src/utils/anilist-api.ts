@@ -10,7 +10,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
-  ANILIST_GRAPHQL_ENDPOINT,
   ANILIST_PAGE_SIZE,
   DEFAULT_TIME_BETWEEN_ACTIONS,
   DEFAULT_TIME_AFTER_FIVE_ACTIONS,
@@ -164,19 +163,49 @@ export async function gql<T>(
   const body = JSON.stringify({ query, variables });
 
   const execute = async (): Promise<T> => {
-    const res = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
-      method:  'POST',
-      headers,
-      body,
-      credentials: 'omit', // graphql.anilist.co is cross-origin from anilist.co
-    });
+    let res: Response;
+    try {
+      res = await fetch('https://graphql.anilist.co', {
+        method:  'POST',
+        headers,
+        body,
+      });
+    } catch (networkErr) {
+      throw new AniListAPIError(
+        `Network error: ${networkErr instanceof Error ? networkErr.message : String(networkErr)}`,
+        0,
+      );
+    }
 
     const waitMs = updateRateLimitFromHeaders(res);
 
     if (res.status === 429) {
       await sleep(waitMs);
-      // Retry once after the backoff
       return execute();
+    }
+
+    // Always try to read JSON — AniList returns error details in body even on 4xx
+    let json: GraphQLResponse<T> | null = null;
+    try {
+      json = (await res.json()) as GraphQLResponse<T>;
+    } catch {
+      // Body wasn't JSON (rare — just throw the HTTP error)
+      throw new AniListAPIError(
+        `AniList API responded with HTTP ${res.status}`,
+        res.status,
+      );
+    }
+
+    // Surface GraphQL-level errors (these come even with HTTP 200 sometimes)
+    if (json.errors && json.errors.length > 0) {
+      const first = json.errors[0];
+      const status = first.status ?? res.status;
+      const msg = status === 404
+        ? `Not found: ${first.message}`
+        : status === 401
+        ? 'Invalid or expired token — please re-authenticate'
+        : first.message;
+      throw new AniListAPIError(msg, status, json.errors);
     }
 
     if (!res.ok) {
@@ -186,20 +215,7 @@ export async function gql<T>(
       );
     }
 
-    const json = (await res.json()) as GraphQLResponse<T>;
-
-    if (json.errors && json.errors.length > 0) {
-      // Surface the first error message for debugging
-      const first = json.errors[0];
-      throw new AniListAPIError(
-        first.message,
-        first.status ?? res.status,
-        json.errors,
-      );
-    }
-
     if (waitMs > 0) {
-      // Proactive slow-down — wait before the caller fires its next request
       await sleep(waitMs);
     }
 
@@ -210,6 +226,7 @@ export async function gql<T>(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+
 // § 4 — Viewer (Self) Query
 // ─────────────────────────────────────────────────────────────────────────────
 
