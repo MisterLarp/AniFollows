@@ -529,7 +529,6 @@ if (!container) {
   container.style.width = "100%";
   container.style.height = "100%";
   container.style.zIndex = "999999";
-  container.style.pointerEvents = "none"; // allow clicks to pass through empty space
 }
 
 render(<App />, container);

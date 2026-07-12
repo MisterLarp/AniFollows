@@ -1133,3 +1133,368 @@ html {
 .button-secondary.danger-text:hover {
     background: rgba(255, 77, 77, 0.1);
 }
+// --- AniFollows New UI Components --------------------------------------------
+
+#ani-follows-root {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 999999;
+    pointer-events: none;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    color: #fff;
+
+    // All direct children can receive pointer events
+    & > * {
+        pointer-events: auto;
+    }
+}
+
+// --- Auth Screen --------------------------------------------------------------
+
+.auth-screen {
+    pointer-events: auto;
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    z-index: 1000000;
+}
+
+.auth-card {
+    background: #1c1c1e;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 16px;
+    padding: 2.5rem;
+    max-width: 480px;
+    width: 90%;
+    box-shadow: 0 32px 64px rgba(0,0,0,0.6);
+
+    h2 {
+        margin: 0 0 0.5rem;
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: #fff;
+        letter-spacing: -0.03em;
+    }
+
+    .auth-description {
+        color: rgba(255,255,255,0.5);
+        font-size: 0.9rem;
+        margin: 0 0 1.5rem;
+        line-height: 1.5;
+    }
+}
+
+.auth-step {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 1.2rem;
+    margin-bottom: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    p { margin: 0; font-size: 0.88rem; color: rgba(255,255,255,0.7); }
+
+    .step-number {
+        width: 24px;
+        height: 24px;
+        background: #007aff;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+        font-weight: 700;
+        flex-shrink: 0;
+    }
+}
+
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.token-input {
+    width: 100%;
+    padding: 0.7rem 0.9rem;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    color: #fff;
+    font-size: 0.88rem;
+    font-family: inherit;
+    box-sizing: border-box;
+
+    &:focus {
+        outline: none;
+        border-color: #007aff;
+    }
+
+    &::placeholder {
+        color: rgba(255,255,255,0.3);
+    }
+}
+
+.auth-error {
+    background: rgba(255,59,48,0.15);
+    border: 1px solid rgba(255,59,48,0.3);
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.82rem;
+    color: #ff6b6b;
+}
+
+.btn-primary {
+    background: #007aff !important;
+    color: #fff !important;
+    border: none !important;
+    border-radius: 8px !important;
+    padding: 0.65rem 1.4rem !important;
+    font-size: 0.9rem !important;
+    font-weight: 500 !important;
+    cursor: pointer !important;
+    transition: background 0.15s ease !important;
+
+    &:hover { background: #0051d5 !important; }
+}
+
+// --- App Main Layout ----------------------------------------------------------
+
+.app-main {
+    pointer-events: auto;
+    position: fixed;
+    inset: 0;
+    overflow-y: auto;
+    background: #111;
+}
+
+// --- Toolbar / Header ---------------------------------------------------------
+
+.ani-toolbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4rem;
+    background: rgba(28,28,30,0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 1.5rem;
+    z-index: 100;
+
+    .toolbar-logo {
+        font-size: 1.05rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .toolbar-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+}
+
+// --- Not Searching (Home) -----------------------------------------------------
+
+.not-searching {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 2rem;
+    gap: 1.5rem;
+    padding-top: 6rem;
+
+    h1 {
+        font-size: 2rem;
+        font-weight: 800;
+        letter-spacing: -0.04em;
+        margin: 0;
+        background: linear-gradient(135deg, #fff 0%, rgba(255,255,255,0.6) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+
+    .action-cards {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+        justify-content: center;
+        max-width: 720px;
+        width: 100%;
+    }
+
+    .action-card {
+        flex: 1;
+        min-width: 180px;
+        max-width: 220px;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 14px;
+        padding: 1.5rem 1rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.75rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-align: center;
+        color: #fff;
+
+        &:hover {
+            background: rgba(255,255,255,0.08);
+            border-color: rgba(255,255,255,0.2);
+            transform: translateY(-2px);
+        }
+
+        .action-icon { font-size: 2rem; }
+        .action-label { font-size: 0.95rem; font-weight: 600; }
+        .action-desc { font-size: 0.78rem; color: rgba(255,255,255,0.5); line-height: 1.4; }
+    }
+}
+
+// --- Status Panels (Engage / Network Follow) ----------------------------------
+
+.panel {
+    pointer-events: auto;
+    background: #1c1c1e;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 16px;
+    padding: 2rem;
+    margin: 5rem auto 2rem;
+    max-width: 480px;
+    width: 90%;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+
+    h2 {
+        margin: 0 0 1rem;
+        font-size: 1.3rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+    }
+
+    .status-phase {
+        color: rgba(255,255,255,0.6);
+        font-size: 0.9rem;
+        margin-bottom: 1rem;
+        line-height: 1.5;
+        min-height: 1.5rem;
+    }
+
+    .status-stats {
+        display: flex;
+        gap: 1.5rem;
+
+        div {
+            display: flex;
+            flex-direction: column;
+            gap: 0.2rem;
+
+            strong {
+                font-size: 1.5rem;
+                font-weight: 700;
+                color: #007aff;
+            }
+        }
+    }
+}
+
+// --- Network Follow Form ------------------------------------------------------
+
+.network-follow-form {
+    pointer-events: auto;
+    background: #1c1c1e;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 16px;
+    padding: 2rem;
+    margin: 5rem auto 2rem;
+    max-width: 480px;
+    width: 90%;
+
+    h2 {
+        margin: 0 0 1.5rem;
+        font-size: 1.3rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+    }
+
+    .form-group {
+        margin-bottom: 1.2rem;
+
+        label {
+            display: block;
+            font-size: 0.85rem;
+            color: rgba(255,255,255,0.6);
+            margin-bottom: 0.4rem;
+            font-weight: 500;
+        }
+
+        input[type="text"],
+        select {
+            width: 100%;
+            padding: 0.7rem 0.9rem;
+            background: rgba(0,0,0,0.4);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 8px;
+            color: #fff;
+            font-size: 0.9rem;
+            font-family: inherit;
+            box-sizing: border-box;
+
+            &:focus { outline: none; border-color: #007aff; }
+        }
+
+        select option { background: #1c1c1e; }
+    }
+
+    .form-actions {
+        display: flex;
+        gap: 0.75rem;
+        margin-top: 1.5rem;
+    }
+}
+
+// --- Toast --------------------------------------------------------------------
+
+.ani-toast {
+    pointer-events: auto;
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    background: #2c2c2e;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 10px;
+    padding: 0.85rem 1.2rem;
+    font-size: 0.9rem;
+    color: #fff;
+    max-width: 320px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    z-index: 1000001;
+    animation: toast-slide-in 0.3s ease;
+}
+
+@keyframes toast-slide-in {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
