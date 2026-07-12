@@ -1,52 +1,45 @@
-/**
- * Session guard — tracks daily API request counts and enforces cooldowns
- * to prevent Instagram from rate-limiting / warning the account.
- *
- * All state is persisted in localStorage so it survives page reloads and
- * multiple script runs throughout the same day.
- *
- * Strategy:
- *  - Count every "scan page fetch" and every "ratio fetch" separately.
- *  - If a daily limit is exceeded → force a HARD_COOLDOWN_MS pause and warn.
- *  - If the user has run the script many times today → lengthen delays.
- *  - Expose helpers that main.tsx can call before each request.
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// AniFollows — Session Guard
+//
+// Tracks daily API request counts and enforces cooldowns to prevent AniList
+// from rate-limiting / blocking the app.
+//
+// All state is persisted in localStorage so it survives page reloads and
+// multiple script runs throughout the same day.
+// ─────────────────────────────────────────────────────────────────────────────
 
-const SESSION_GUARD_KEY = 'iu_session_guard';
-
-// ─── Limits ───────────────────────────────────────────────────────────────────
-/** Max following-list pages to fetch per day before forcing a hard cooldown. */
-const MAX_SCAN_PAGES_PER_DAY = 300;
-/** Max ratio-profile fetches per day. */
-const MAX_RATIO_FETCHES_PER_DAY = 200;
-/** Max times the whole script can be "Run" in one day without extra warning. */
-const MAX_RUNS_PER_DAY = 6;
-
-/** How long to pause (ms) when a daily limit is reached. */
-const HARD_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
-
-/** Minimum gap (ms) between two consecutive script runs. */
-const MIN_RUN_GAP_MS = 8 * 60 * 1000; // 8 minutes
+import {
+  SESSION_GUARD_KEY,
+  MAX_SCAN_PAGES_PER_DAY,
+  MAX_MUTATIONS_PER_DAY,
+  MAX_RUNS_PER_DAY,
+  MIN_RUN_GAP_MS,
+  HARD_COOLDOWN_MS,
+} from '../constants/constants';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface SessionGuardData {
   /** ISO date string "YYYY-MM-DD" for the current day bucket. */
-  day: string;
-  scanPages: number;
-  ratioFetches: number;
-  runCount: number;
-  lastRunAt: number;
+  readonly day:              string;
+  /** Number of following/follower list pages fetched today. */
+  readonly scanPages:        number;
+  /** Number of state-changing mutations (follow/unfollow/like) executed today. */
+  readonly mutations:        number;
+  /** Number of times the script has been "Run" (scan initiated) today. */
+  readonly runCount:         number;
+  /** Unix timestamp (ms) of the last run. */
+  readonly lastRunAt:        number;
   /** ms of extra per-request jitter to add when usage is high. */
-  jitterMultiplier: number;
+  readonly jitterMultiplier: number;
 }
 
 export interface SessionGuardStatus {
-  ok: boolean;
-  /** Human-readable warning if ok === false. */
-  warning?: string;
+  readonly ok:           boolean;
+  /** Human-readable warning if ok === false or if close to a limit. */
+  readonly warning?:     string;
   /** Suggested extra delay in ms before the next request. */
-  extraDelayMs: number;
+  readonly extraDelayMs: number;
 }
 
 // ─── Internal ─────────────────────────────────────────────────────────────────
@@ -66,17 +59,19 @@ function load(): SessionGuardData {
       }
       return data;
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return freshDay();
 }
 
 function freshDay(): SessionGuardData {
   return {
-    day: today(),
-    scanPages: 0,
-    ratioFetches: 0,
-    runCount: 0,
-    lastRunAt: 0,
+    day:              today(),
+    scanPages:        0,
+    mutations:        0,
+    runCount:         0,
+    lastRunAt:        0,
     jitterMultiplier: 1,
   };
 }
@@ -84,22 +79,26 @@ function freshDay(): SessionGuardData {
 function save(data: SessionGuardData): void {
   try {
     localStorage.setItem(SESSION_GUARD_KEY, JSON.stringify(data));
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Recalculate jitter multiplier based on daily usage. */
 function computeJitter(data: SessionGuardData): number {
   // Scale from 1× at 0 runs up to 4× at MAX_RUNS_PER_DAY runs
-  const runRatio = Math.min(data.runCount / MAX_RUNS_PER_DAY, 1);
+  const runRatio  = Math.min(data.runCount / MAX_RUNS_PER_DAY, 1);
   const pageRatio = Math.min(data.scanPages / MAX_SCAN_PAGES_PER_DAY, 1);
-  const ratio = Math.max(runRatio, pageRatio);
+  const mutRatio  = Math.min(data.mutations / MAX_MUTATIONS_PER_DAY, 1);
+
+  const ratio = Math.max(runRatio, pageRatio, mutRatio);
   return 1 + ratio * 3; // 1×..4×
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Call once when the user hits "Run".
+ * Call once when the user initiates a full scan.
  * Returns a status object; if ok===false the caller should warn + optionally abort.
  */
 export function recordScriptRun(): SessionGuardStatus {
@@ -112,21 +111,25 @@ export function recordScriptRun(): SessionGuardStatus {
     const waitSec = Math.ceil((MIN_RUN_GAP_MS - gap) / 1000);
     return {
       ok: false,
-      warning: `⚠️ You ran the script ${Math.round(gap / 1000)}s ago. Please wait ${waitSec}s before re-running to avoid Instagram warnings.`,
+      warning: `⚠️ You ran a scan ${Math.round(gap / 1000)}s ago. Please wait ${waitSec}s before scanning again to avoid AniList rate limits.`,
       extraDelayMs: MIN_RUN_GAP_MS - gap,
     };
   }
 
-  data.runCount += 1;
-  data.lastRunAt = now;
-  data.jitterMultiplier = computeJitter(data);
-  save(data);
+  const updated: SessionGuardData = {
+    ...data,
+    runCount: data.runCount + 1,
+    lastRunAt: now,
+  };
+  
+  const finalUpdated = { ...updated, jitterMultiplier: computeJitter(updated) };
+  save(finalUpdated);
 
-  if (data.runCount > MAX_RUNS_PER_DAY) {
+  if (finalUpdated.runCount > MAX_RUNS_PER_DAY) {
     return {
       ok: true, // still proceed but warn loudly
-      warning: `⚠️ You've run this script ${data.runCount} times today (safe limit: ${MAX_RUNS_PER_DAY}). Instagram may flag unusual activity. Consider stopping for today.`,
-      extraDelayMs: 5000 * (data.runCount - MAX_RUNS_PER_DAY),
+      warning: `⚠️ You've run this script ${finalUpdated.runCount} times today (safe limit: ${MAX_RUNS_PER_DAY}). AniList may limit you.`,
+      extraDelayMs: 5000 * (finalUpdated.runCount - MAX_RUNS_PER_DAY),
     };
   }
 
@@ -134,48 +137,61 @@ export function recordScriptRun(): SessionGuardStatus {
 }
 
 /**
- * Call after each following-list page is fetched.
+ * Call after each following/follower page is fetched.
  * Returns how many extra ms to sleep before the next request.
  */
 export function recordScanPage(): SessionGuardStatus {
   const data = load();
-  data.scanPages += 1;
-  data.jitterMultiplier = computeJitter(data);
-  save(data);
+  
+  const updated: SessionGuardData = {
+    ...data,
+    scanPages: data.scanPages + 1,
+  };
 
-  if (data.scanPages > MAX_SCAN_PAGES_PER_DAY) {
+  const finalUpdated = { ...updated, jitterMultiplier: computeJitter(updated) };
+  save(finalUpdated);
+
+  if (finalUpdated.scanPages > MAX_SCAN_PAGES_PER_DAY) {
     return {
       ok: false,
-      warning: `🛑 Daily scan limit reached (${data.scanPages} pages). Pausing ${HARD_COOLDOWN_MS / 60000} min to protect your account.`,
+      warning: `🛑 Daily scan limit reached (${finalUpdated.scanPages} pages). Pausing ${HARD_COOLDOWN_MS / 60_000} min to protect your rate limit.`,
       extraDelayMs: HARD_COOLDOWN_MS,
     };
   }
 
   // Progressive slow-down as we approach the limit
-  const ratio = data.scanPages / MAX_SCAN_PAGES_PER_DAY;
-  const extra = ratio > 0.7 ? Math.round(ratio * 3000 * data.jitterMultiplier) : 0;
+  const ratio = finalUpdated.scanPages / MAX_SCAN_PAGES_PER_DAY;
+  const extra = ratio > 0.7 ? Math.round(ratio * 3000 * finalUpdated.jitterMultiplier) : 0;
+  
   return { ok: true, extraDelayMs: extra };
 }
 
 /**
- * Call before each ratio-profile fetch.
+ * Call before each mutation (follow / unfollow / like).
  * Returns how many extra ms to sleep (or a hard-stop warning).
  */
-export function recordRatioFetch(): SessionGuardStatus {
+export function recordMutation(): SessionGuardStatus {
   const data = load();
-  data.ratioFetches += 1;
-  save(data);
+  
+  const updated: SessionGuardData = {
+    ...data,
+    mutations: data.mutations + 1,
+  };
 
-  if (data.ratioFetches > MAX_RATIO_FETCHES_PER_DAY) {
+  const finalUpdated = { ...updated, jitterMultiplier: computeJitter(updated) };
+  save(finalUpdated);
+
+  if (finalUpdated.mutations > MAX_MUTATIONS_PER_DAY) {
     return {
       ok: false,
-      warning: `🛑 Daily ratio-fetch limit reached (${data.ratioFetches}). Wait 15–30 min before retrying ratios.`,
+      warning: `🛑 Daily mutation limit reached (${finalUpdated.mutations}). AniList caps action density. Pausing ${HARD_COOLDOWN_MS / 60_000} min.`,
       extraDelayMs: HARD_COOLDOWN_MS,
     };
   }
 
-  const ratio = data.ratioFetches / MAX_RATIO_FETCHES_PER_DAY;
-  const extra = ratio > 0.6 ? Math.round(ratio * 2000 * data.jitterMultiplier) : 0;
+  const ratio = finalUpdated.mutations / MAX_MUTATIONS_PER_DAY;
+  const extra = ratio > 0.6 ? Math.round(ratio * 2000 * finalUpdated.jitterMultiplier) : 0;
+  
   return { ok: true, extraDelayMs: extra };
 }
 
@@ -188,9 +204,9 @@ export function getSessionStats(): SessionGuardData {
 
 /**
  * Extra random jitter (ms) based on current daily usage.
- * Add this on top of your normal sleeps.
+ * Add this on top of normal sleeps.
  */
-export function sessionJitter(): number {
+export function sessionJitter(baseRangeMs: number = 1000): number {
   const data = load();
-  return Math.round(Math.random() * 1000 * data.jitterMultiplier);
+  return Math.round(Math.random() * baseRangeMs * data.jitterMultiplier);
 }

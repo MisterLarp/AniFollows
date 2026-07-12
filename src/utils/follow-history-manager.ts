@@ -25,11 +25,10 @@ export function saveFollowHistory(history: FollowHistory): void {
 }
 
 export function addFollowEntry(
-  userId: string,
+  userId: number,
   username: string,
   options?: {
     followedAt?: number;
-    hasPostedSinceFollow?: boolean;
     followDateSource?: FollowDateSource;
   },
 ): FollowHistory {
@@ -40,8 +39,6 @@ export function addFollowEntry(
     userId,
     username,
     followedAt: options?.followedAt ?? existing?.followedAt ?? Date.now(),
-    hasPostedSinceFollow: options?.hasPostedSinceFollow ?? existing?.hasPostedSinceFollow,
-    lastCheckedAt: existing?.lastCheckedAt,
     followDateSource: options?.followDateSource ?? existing?.followDateSource ?? 'live',
   };
 
@@ -54,7 +51,7 @@ export function addFollowEntry(
   return updated;
 }
 
-export function removeFollowEntry(userId: string): FollowHistory {
+export function removeFollowEntry(userId: number): FollowHistory {
   const history = loadFollowHistory();
   if (!history) return { entries: [] };
   const updated = {
@@ -64,7 +61,7 @@ export function removeFollowEntry(userId: string): FollowHistory {
   return updated;
 }
 
-export function updateFollowEntry(userId: string, updates: Partial<FollowHistoryEntry>): FollowHistory {
+export function updateFollowEntry(userId: number, updates: Partial<FollowHistoryEntry>): FollowHistory {
   const history = loadFollowHistory();
   if (!history) return { entries: [] };
   const updated = {
@@ -76,7 +73,7 @@ export function updateFollowEntry(userId: string, updates: Partial<FollowHistory
   return updated;
 }
 
-export function getFollowEntry(userId: string): FollowHistoryEntry | null {
+export function getFollowEntry(userId: number): FollowHistoryEntry | null {
   const history = loadFollowHistory();
   if (!history) return null;
   return history.entries.find(entry => entry.userId === userId) || null;
@@ -102,14 +99,12 @@ export function cleanupOldFollows(daysToKeep: number = 30): FollowHistory {
 
 /** For testing: mark a user as followed N hours ago */
 export function addTestFollowEntry(
-  userId: string,
+  userId: number,
   username: string,
   hoursAgo: number,
-  hasPosted = true,
 ): FollowHistory {
   return addFollowEntry(userId, username, {
     followedAt: Date.now() - hoursAgo * 60 * 60 * 1000,
-    hasPostedSinceFollow: hasPosted,
   });
 }
 
@@ -126,7 +121,7 @@ export function exportFollowHistory(): void {
   const url = URL.createObjectURL(dataBlob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `follow-history-${new Date().toISOString().split('T')[0]}.json`;
+  link.download = `anilist-follow-history-${new Date().toISOString().split('T')[0]}.json`;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -148,15 +143,13 @@ export function importFollowHistory(
 
       const imported = JSON.parse(content) as FollowHistory;
 
-      // Validate structure
       if (!imported.entries || !Array.isArray(imported.entries)) {
         onError('Invalid file format: missing entries array');
         return;
       }
 
-      // Validate entry structure
       const validEntries = imported.entries.filter(
-        entry => entry.userId && entry.username && entry.followedAt
+        entry => entry.userId && entry.username && entry.followedAt && typeof entry.userId === 'number'
       );
 
       if (validEntries.length !== imported.entries.length) {
@@ -164,7 +157,6 @@ export function importFollowHistory(
         return;
       }
 
-      // Merge with existing history (don't overwrite)
       const existing = loadFollowHistory() || { entries: [] };
       const existingIds = new Set(existing.entries.map(e => e.userId));
       

@@ -1,16 +1,36 @@
-export type FollowDateSource = 'live' | 'snapshot' | 'api' | 'estimated' | 'manual';
+// ─────────────────────────────────────────────────────────────────────────────
+// AniFollows — Follow History Model
+//
+// Stores a local record of every user the viewer has followed via this tool.
+// The data persists in localStorage and drives the auto-unfollow timer logic.
+// ─────────────────────────────────────────────────────────────────────────────
+import { FOLLOW_HISTORY_STORAGE_KEY } from '../constants/constants';
 
+export { FOLLOW_HISTORY_STORAGE_KEY };
+
+/**
+ * Source of the follow timestamp:
+ *  - 'live'      → recorded the moment the follow action was executed by this app
+ *  - 'estimated' → inferred from position in the following list (earlier entries = older)
+ *  - 'manual'    → user explicitly set the follow time via the UI
+ */
+export type FollowDateSource = 'live' | 'estimated' | 'manual';
+
+/**
+ * A single tracked follow event.
+ * userId is a numeric AniList ID (stored as number, not string).
+ */
 export interface FollowHistoryEntry {
-  readonly userId: string;
-  readonly username: string;
-  readonly followedAt: number; // timestamp
-  readonly hasPostedSinceFollow?: boolean; // tracked if we can detect posts
-  readonly lastCheckedAt?: number; // last time we checked for posts
+  /** AniList numeric user ID. */
+  readonly userId:          number;
+  /** Display name at the time of follow (may drift if user renames). */
+  readonly username:        string;
+  /** Unix timestamp (ms) when the follow was recorded. */
+  readonly followedAt:      number;
+  /** How the followedAt timestamp was determined. */
   readonly followDateSource?: FollowDateSource;
 }
 
 export interface FollowHistory {
   readonly entries: readonly FollowHistoryEntry[];
 }
-
-export const FOLLOW_HISTORY_STORAGE_KEY = 'instagram_follow_history';

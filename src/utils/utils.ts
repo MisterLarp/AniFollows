@@ -1,42 +1,40 @@
-import { UserNode } from "../model/user";
-import { UNFOLLOWERS_PER_PAGE, WITHOUT_PROFILE_PICTURE_URL_IDS } from "../constants/constants";
+import { AniListUser } from "../model/anilist-user";
+import { USERS_PER_PAGE } from "../constants/constants";
 import { ScanningTab } from "../model/scanning-tab";
 import { ScanningFilter } from "../model/scanning-filter";
 import { UnfollowLogEntry } from "../model/unfollow-log-entry";
 import { UnfollowFilter } from "../model/unfollow-filter";
-import { hasBadRatio } from "../ratio";
 
-export async function copyListToClipboard(nonFollowersList: readonly UserNode[]): Promise<void> {
-  const sortedList = [...nonFollowersList].sort((a, b) => (a.username > b.username ? 1 : -1));
+export async function copyListToClipboard(usersList: readonly AniListUser[]): Promise<void> {
+  const sortedList = [...usersList].sort((a, b) => (a.name > b.name ? 1 : -1));
 
   let output = '';
   sortedList.forEach(user => {
-    output += user.username + '\n';
+    output += user.name + '\n';
   });
 
   await navigator.clipboard.writeText(output);
   alert('List copied to clipboard!');
 }
 
-export function exportToJSON(users: readonly UserNode[]) {
+export function exportToJSON(users: readonly AniListUser[]) {
   const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(users, null, 2));
   const downloadAnchorNode = document.createElement('a');
   downloadAnchorNode.setAttribute("href",     dataStr);
-  downloadAnchorNode.setAttribute("download", "instagram_unfollowers.json");
+  downloadAnchorNode.setAttribute("download", `anilist_users_${new Date().toISOString().split('T')[0]}.json`);
   document.body.appendChild(downloadAnchorNode);
   downloadAnchorNode.click();
   downloadAnchorNode.remove();
 }
 
-export function exportToCSV(users: readonly UserNode[]) {
-  const headers = ['id', 'username', 'full_name', 'is_verified', 'is_private', 'profile_pic_url'];
+export function exportToCSV(users: readonly AniListUser[]) {
+  const headers = ['id', 'name', 'site_url', 'is_following', 'is_follower'];
   const rows = users.map(user => [
     user.id,
-    user.username,
-    `"${user.full_name.replace(/"/g, '""')}"`,
-    user.is_verified,
-    user.is_private,
-    user.profile_pic_url
+    user.name,
+    user.siteUrl,
+    user.isFollowing,
+    user.isFollower
   ]);
   
   const csvContent = "data:text/csv;charset=utf-8," 
@@ -46,35 +44,31 @@ export function exportToCSV(users: readonly UserNode[]) {
   const encodedUri = encodeURI(csvContent);
   const link = document.createElement("a");
   link.setAttribute("href", encodedUri);
-  link.setAttribute("download", "instagram_unfollowers.csv");
+  link.setAttribute("download", `anilist_users_${new Date().toISOString().split('T')[0]}.csv`);
   document.body.appendChild(link);
   link.click();
   link.remove();
 }
 
-export function getMaxPage(nonFollowersList: readonly UserNode[]): number {
-  const pageCalc = Math.ceil(nonFollowersList.length / UNFOLLOWERS_PER_PAGE);
+export function getMaxPage(usersList: readonly AniListUser[]): number {
+  const pageCalc = Math.ceil(usersList.length / USERS_PER_PAGE);
   return pageCalc < 1 ? 1 : pageCalc;
 }
 
-export function getCurrentPageUnfollowers(nonFollowersList: readonly UserNode[], currentPage: number): readonly UserNode[] {
-  const sortedList = [...nonFollowersList].sort((a, b) => (a.username > b.username ? 1 : -1));
-  return sortedList.splice(UNFOLLOWERS_PER_PAGE * (currentPage - 1), UNFOLLOWERS_PER_PAGE);
-}
-
-export function isWithoutProfilePicture(user: UserNode): boolean {
-  return WITHOUT_PROFILE_PICTURE_URL_IDS.some(id => user.profile_pic_url.includes(id));
+export function getCurrentPageUsers(usersList: readonly AniListUser[], currentPage: number): readonly AniListUser[] {
+  const sortedList = [...usersList].sort((a, b) => (a.name > b.name ? 1 : -1));
+  return sortedList.splice(USERS_PER_PAGE * (currentPage - 1), USERS_PER_PAGE);
 }
 
 export function getUsersForDisplay(
-  results: readonly UserNode[],
-  whitelistedResults: readonly UserNode[],
+  results: readonly AniListUser[],
+  whitelistedResults: readonly AniListUser[],
   currentTab: ScanningTab,
   searchTerm: string,
   filter: ScanningFilter,
-  autoUnfollowUserIds?: ReadonlySet<string>,
-): readonly UserNode[] {
-  const users: UserNode[] = [];
+  autoUnfollowUserIds?: ReadonlySet<number>,
+): readonly AniListUser[] {
+  const users: AniListUser[] = [];
   for (const result of results) {
     const isWhitelisted = whitelistedResults.find(user => user.id === result.id) !== undefined;
     switch (currentTab) {
@@ -91,33 +85,19 @@ export function getUsersForDisplay(
       default:
         assertUnreachable(currentTab);
     }
-    if (!filter.showPrivate && result.is_private) {
+    
+    if (!filter.showFollowers && result.isFollower) {
       continue;
     }
-    if (!filter.showVerified && result.is_verified) {
+    if (!filter.showNonFollowers && !result.isFollower) {
       continue;
     }
-    if (!filter.showFollowers && result.follows_viewer) {
-      continue;
-    }
-    if (!filter.showNonFollowers && !result.follows_viewer) {
-      continue;
-    }
-    if (!filter.showWithOutProfilePicture && isWithoutProfilePicture(result)) {
-      continue;
-    }
-    if (
-      filter.showBadRatioOnly &&
-      !hasBadRatio(result.follower_count, result.following_count, filter.badRatioThreshold)
-    ) {
-      continue;
-    }
+
     if (filter.showAutoUnfollowOnly && autoUnfollowUserIds && !autoUnfollowUserIds.has(result.id)) {
       continue;
     }
-    const userMatchesSearchTerm =
-      result.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      result.full_name.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const userMatchesSearchTerm = result.name.toLowerCase().includes(searchTerm.toLowerCase());
     if (searchTerm !== "" && !userMatchesSearchTerm) {
       continue;
     }
@@ -135,7 +115,7 @@ export function getUnfollowLogForDisplay(log: readonly UnfollowLogEntry[], searc
     if (!filter.showFailed && !entry.unfollowedSuccessfully) {
       continue;
     }
-    const userMatchesSearchTerm = entry.user.username.toLowerCase().includes(searchTerm.toLowerCase());
+    const userMatchesSearchTerm = entry.user.name.toLowerCase().includes(searchTerm.toLowerCase());
     if (searchTerm !== "" && !userMatchesSearchTerm) {
       continue;
     }
@@ -146,40 +126,8 @@ export function getUnfollowLogForDisplay(log: readonly UnfollowLogEntry[], searc
 
 /**
  * When writing a switch-case with a finite number of cases, use this function in the
- * `default` clause of switch-case statements for exhaustive checking. This will make
- * TS complain until ALL cases are handled. For example, if we have a switch-case
- * in-which we evaluate every possible status of a component's state, if we add this
- * to the default clause and then add a new status to the state type, TS will complain
- * and force us to handle it as well, thus avoiding forgetting it.
+ * `default` clause of switch-case statements for exhaustive checking.
  */
 export function assertUnreachable(_value: never): never {
   throw new Error('Statement should be unreachable');
-}
-
-export function sleep(ms: number): Promise<any> {
-  return new Promise(resolve => {
-    setTimeout(resolve, ms);
-  });
-}
-
-export function getCookie(name: string): string | null {
-  const value = `; ${document.cookie}`;
-  const parts = value.split(`; ${name}=`);
-  if (parts.length !== 2) {
-    return null;
-  }
-  return parts.pop()!.split(';').shift()!;
-}
-
-export function urlGenerator(nextCode?: string): string {
-  const ds_user_id = getCookie('ds_user_id');
-  if (nextCode === undefined) {
-    // First url
-    return `https://www.instagram.com/graphql/query/?query_hash=3dec7e2c57367ef3da3d987d89f9dbc8&variables={"id":"${ds_user_id}","include_reel":"true","fetch_mutual":"false","first":"24"}`;
-  }
-  return `https://www.instagram.com/graphql/query/?query_hash=3dec7e2c57367ef3da3d987d89f9dbc8&variables={"id":"${ds_user_id}","include_reel":"true","fetch_mutual":"false","first":"24","after":"${nextCode}"}`;
-}
-
-export function unfollowUserUrlGenerator(idToUnfollow: string): string {
-  return `https://www.instagram.com/web/friendships/${idToUnfollow}/unfollow/`;
 }

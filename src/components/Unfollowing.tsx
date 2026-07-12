@@ -5,15 +5,9 @@ import { State } from "../model/state";
 interface UnfollowingProps {
   state: State;
   handleUnfollowFilter: (e: React.ChangeEvent<HTMLInputElement>) => void;
-
 }
 
-export const Unfollowing = (
-  {
-    state,
-    handleUnfollowFilter,
-  }: UnfollowingProps) => {
-
+export const Unfollowing = ({ state, handleUnfollowFilter }: UnfollowingProps) => {
   if (state.status !== "unfollowing") {
     return null;
   }
@@ -44,7 +38,7 @@ export const Unfollowing = (
         </menu>
       </aside>
       <article className="unfollow-log-container">
-        {state.unfollowLog.length === state.selectedResults.length && (
+        {state.percentage === 100 && (
           <>
             <hr />
             <div className="fs-large p-medium clr-green">All DONE!</div>
@@ -59,10 +53,10 @@ export const Unfollowing = (
                 <a
                   className="clr-inherit"
                   target="_blank"
-                  href={`../${entry.user.username}`}
+                  href={entry.user.siteUrl}
                   rel="noreferrer"
                 >
-                  &nbsp;{entry.user.username}
+                  &nbsp;{entry.user.name}
                 </a>
                 <span className="clr-cyan">
                   &nbsp; [{index + 1}/{state.selectedResults.length}]
@@ -70,8 +64,9 @@ export const Unfollowing = (
               </div>
             ) : (
               <div className="p-medium clr-red" key={entry.user.id}>
-                Failed to unfollow {entry.user.username} [{index + 1}/
+                Failed to unfollow {entry.user.name} [{index + 1}/
                 {state.selectedResults.length}]
+                {entry.error && <span className="fs-small"><br/>({entry.error})</span>}
               </div>
             ),
         )}

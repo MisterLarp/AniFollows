@@ -1,10 +1,10 @@
 import React, { useRef, useState } from "react";
-import { UserNode } from "../model/user";
+import { AniListUser } from "../model/anilist-user";
 import { exportWhitelist, importWhitelist, clearWhitelist, mergeWhitelists } from "../utils/whitelist-manager";
 
 interface WhitelistManagerProps {
-  whitelistedUsers: readonly UserNode[];
-  onWhitelistUpdate: (users: readonly UserNode[]) => void;
+  whitelistedUsers: readonly AniListUser[];
+  onWhitelistUpdate: (users: readonly AniListUser[]) => void;
 }
 
 export const WhitelistManager = ({ whitelistedUsers, onWhitelistUpdate }: WhitelistManagerProps) => {
@@ -29,7 +29,7 @@ export const WhitelistManager = ({ whitelistedUsers, onWhitelistUpdate }: Whitel
     importWhitelist(
       file,
       (importedUsers) => {
-        let finalUsers: readonly UserNode[];
+        let finalUsers: readonly AniListUser[];
         
         if (importMode === "merge") {
           finalUsers = mergeWhitelists(whitelistedUsers, importedUsers);

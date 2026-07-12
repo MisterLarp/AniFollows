@@ -1,65 +1,41 @@
-import { UserNode } from '../model/user';
-import { FollowHistoryEntry } from '../model/follow-history';
-import { hasBadRatio } from '../ratio';
-
-export enum UnfollowReason {
-  POSTED_NO_FOLLOWBACK = 'POSTED_NO_FOLLOWBACK', // 24h + posted + no followback
-  TIMEOUT_NO_FOLLOWBACK = 'TIMEOUT_NO_FOLLOWBACK', // 48h regardless
-  EGO_AURA = 'EGO_AURA', // bad ratio + they followed back
-}
-
-export interface UnfollowCandidate {
-  readonly user: UserNode;
-  readonly reason: UnfollowReason;
-  readonly followEntry: FollowHistoryEntry;
-  readonly hoursSinceFollow: number;
-}
+import { AniListUser, UnfollowCandidate, UnfollowReason, FollowHistoryEntry } from '../model/anilist-user';
+import { AUTO_UNFOLLOW_HOURS_SOFT, AUTO_UNFOLLOW_HOURS_HARD } from '../constants/constants';
 
 export function shouldUnfollowUser(
-  user: UserNode,
-  followEntry: FollowHistoryEntry,
-  currentFollowerCount?: number,
-  currentFollowingCount?: number
+  user: AniListUser,
+  followEntry: FollowHistoryEntry
 ): UnfollowCandidate | null {
   const hoursSinceFollow = (Date.now() - followEntry.followedAt) / (1000 * 60 * 60);
 
-  // Only process if within 4 days (96 hours)
+  // Only process if within 4 days (96 hours). Older entries require manual intervention.
   if (hoursSinceFollow > 96) {
-    return null; // Too old, requires manual intervention
+    return null; 
   }
 
-  // Check if they followed back
-  const hasFollowedBack = user.follows_viewer;
-
-  // Ego/Aura method: Bad ratio + they followed back + 24h since they followed back
-  if (hasFollowedBack && hoursSinceFollow >= 24) {
-    if (hasBadRatio(currentFollowerCount, currentFollowingCount, 1.0)) {
-      return {
-        user,
-        reason: UnfollowReason.EGO_AURA,
-        followEntry,
-        hoursSinceFollow,
-      };
-    }
+  // If they already followed back, we don't auto-unfollow them based on time.
+  // (EGO_AURA ratio check was removed per spec).
+  if (user.isFollower) {
+    return null;
   }
 
-  // 24 hours + they posted + no followback
-  if (hoursSinceFollow >= 24 && !hasFollowedBack) {
-    if (followEntry.hasPostedSinceFollow) {
-      return {
-        user,
-        reason: UnfollowReason.POSTED_NO_FOLLOWBACK,
-        followEntry,
-        hoursSinceFollow,
-      };
-    }
-  }
-
-  // 48 hours regardless of posting + no followback
-  if (hoursSinceFollow >= 48 && !hasFollowedBack) {
+  // 48 hours regardless + no followback (Hard Timeout)
+  if (hoursSinceFollow >= AUTO_UNFOLLOW_HOURS_HARD) {
     return {
       user,
-      reason: UnfollowReason.TIMEOUT_NO_FOLLOWBACK,
+      reason: UnfollowReason.TIMEOUT_48H,
+      followEntry,
+      hoursSinceFollow,
+    };
+  }
+
+  // 24 hours + no followback (Soft Timeout)
+  // For AniList, since we don't have "post detection" to serve as an activity ping,
+  // we default to flagging them after 24h as a soft timeout. The user can still
+  // manually decide whether to execute the unfollow.
+  if (hoursSinceFollow >= AUTO_UNFOLLOW_HOURS_SOFT) {
+    return {
+      user,
+      reason: UnfollowReason.TIMEOUT_24H,
       followEntry,
       hoursSinceFollow,
     };
@@ -69,7 +45,7 @@ export function shouldUnfollowUser(
 }
 
 export function getUnfollowCandidates(
-  users: readonly UserNode[],
+  users: readonly AniListUser[],
   followHistory: readonly FollowHistoryEntry[]
 ): UnfollowCandidate[] {
   const candidates: UnfollowCandidate[] = [];
@@ -78,12 +54,7 @@ export function getUnfollowCandidates(
     const followEntry = followHistory.find(entry => entry.userId === user.id);
     if (!followEntry) continue;
 
-    const candidate = shouldUnfollowUser(
-      user,
-      followEntry,
-      user.follower_count,
-      user.following_count
-    );
+    const candidate = shouldUnfollowUser(user, followEntry);
 
     if (candidate) {
       candidates.push(candidate);
@@ -95,12 +66,10 @@ export function getUnfollowCandidates(
 
 export function getUnfollowReasonLabel(reason: UnfollowReason): string {
   switch (reason) {
-    case UnfollowReason.POSTED_NO_FOLLOWBACK:
-      return 'Posted but no followback (24h)';
-    case UnfollowReason.TIMEOUT_NO_FOLLOWBACK:
-      return 'Timeout no followback (48h)';
-    case UnfollowReason.EGO_AURA:
-      return 'Ego/Aura (bad ratio)';
+    case UnfollowReason.TIMEOUT_24H:
+      return '24h+ (No follow back)';
+    case UnfollowReason.TIMEOUT_48H:
+      return '48h+ Timeout (No follow back)';
     default:
       return 'Unknown';
   }
@@ -108,12 +77,10 @@ export function getUnfollowReasonLabel(reason: UnfollowReason): string {
 
 export function getUnfollowReasonBadge(reason: UnfollowReason): { emoji: string; text: string } {
   switch (reason) {
-    case UnfollowReason.POSTED_NO_FOLLOWBACK:
-      return { emoji: '📵', text: '24h+ Posted' };
-    case UnfollowReason.TIMEOUT_NO_FOLLOWBACK:
+    case UnfollowReason.TIMEOUT_24H:
+      return { emoji: '⏳', text: '24h+ Timeout' };
+    case UnfollowReason.TIMEOUT_48H:
       return { emoji: '⏰', text: '48h+ Timeout' };
-    case UnfollowReason.EGO_AURA:
-      return { emoji: '🎯', text: 'Ego/Aura' };
     default:
       return { emoji: '⚠️', text: 'Auto-Unfollow' };
   }
