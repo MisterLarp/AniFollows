@@ -15,7 +15,7 @@ export const ANILIST_GRAPHQL_ENDPOINT = 'https://graphql.anilist.co';
 export const ANILIST_CLIENT_ID = '45697';
 /** PIN-based implicit grant — user copies the token from AniList's PIN page */
 export const ANILIST_AUTH_URL =
-  `https://anilist.co/api/v2/oauth/authorize?client_id=${ANILIST_CLIENT_ID}&response_type=token&redirect_uri=https://anilist.co/api/v2/oauth/pin`;
+  `https://anilist.co/api/v2/oauth/authorize?client_id=${ANILIST_CLIENT_ID}&response_type=token`;
 
 // ── localStorage Keys ─────────────────────────────────────────────────────────
 export const STORAGE_PREFIX = 'alf_'; // "anilist follow" — all keys namespaced

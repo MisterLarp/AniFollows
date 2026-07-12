@@ -168,7 +168,7 @@ export async function gql<T>(
       method:  'POST',
       headers,
       body,
-      credentials: 'same-origin', // send cookies when on anilist.co
+      credentials: 'omit', // graphql.anilist.co is cross-origin from anilist.co
     });
 
     const waitMs = updateRateLimitFromHeaders(res);
