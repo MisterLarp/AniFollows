@@ -12,9 +12,16 @@ export const NetworkFollow: React.FC<NetworkFollowProps> = ({ onStart, onCancel 
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (targetUsername.trim()) {
-      onStart(targetUsername.trim(), mode);
+    let cleaned = targetUsername.trim();
+    if (!cleaned) return;
+
+    // If the user pasted a full URL (e.g. https://anilist.co/user/Msin/), extract just the username
+    const match = cleaned.match(/(?:anilist\.co\/user\/|^)([a-zA-Z0-9_]+)(?:\/|$)/i);
+    if (match && match[1]) {
+      cleaned = match[1];
     }
+
+    onStart(cleaned, mode);
   };
 
   return (
