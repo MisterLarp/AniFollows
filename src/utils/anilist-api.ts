@@ -81,11 +81,16 @@ function updateRateLimitFromHeaders(res: Response): number {
     rateLimitState.resetAt = parseInt(reset, 10) * 1_000; // header is seconds
   }
 
+  // Calculate wait based on resetAt, but clamped to a sensible range (0-60s)
+  // to avoid issues where the client clock is out of sync with the server clock.
+  const resetWaitSec = Math.max(0, Math.ceil((rateLimitState.resetAt - Date.now()) / 1_000));
+  const safeResetWaitSec = resetWaitSec > 120 ? 60 : resetWaitSec; // AniList limit window is 1 minute
+
   if (res.status === 429) {
-    // Respect Retry-After header if present, otherwise fall back to reset time
+    // Respect Retry-After header if present, otherwise fall back to reset time (minimum 60s as a fallback)
     const waitSec = retryAfter !== null
       ? parseInt(retryAfter, 10)
-      : Math.max(0, Math.ceil((rateLimitState.resetAt - Date.now()) / 1_000));
+      : (safeResetWaitSec > 0 ? safeResetWaitSec : 60);
 
     const waitMs = (waitSec + 10) * 1_000; // +10 s buffer
     rateLimitState.backingOff = true;
@@ -97,8 +102,10 @@ function updateRateLimitFromHeaders(res: Response): number {
 
   // Proactive slow-down: if fewer than 5 requests remain in the current window,
   // wait until the window resets before allowing more calls.
-  if (rateLimitState.remaining < 5 && rateLimitState.resetAt > Date.now()) {
-    const waitMs = rateLimitState.resetAt - Date.now() + 1_000; // +1 s buffer
+  // Ignore proactive slow-down if client clock is way off (safeResetWaitSec === 0 but remaining < 5)
+  // In that case we just let it hit 429 and do the proper 429 backoff.
+  if (rateLimitState.remaining < 5 && safeResetWaitSec > 0) {
+    const waitMs = (safeResetWaitSec + 2) * 1_000; // +2 s buffer
     console.warn(`[AniAPI] Remaining=${rateLimitState.remaining} — pausing ${Math.round(waitMs / 1000)}s for reset`);
     return waitMs;
   }
@@ -162,7 +169,7 @@ export async function gql<T>(
 
   const body = JSON.stringify({ query, variables });
 
-  const execute = async (): Promise<T> => {
+  const execute = async (attempt = 1): Promise<T> => {
     let res: Response;
     try {
       res = await fetch('https://graphql.anilist.co', {
@@ -171,6 +178,14 @@ export async function gql<T>(
         body,
       });
     } catch (networkErr) {
+      // If we encounter a network error (like CORS failure due to a 429 preflight block),
+      // we should back off and retry before completely giving up.
+      if (attempt <= 2) {
+        console.warn(`[AniAPI] Network error (possibly CORS blocked 429). Retrying after 60s...`);
+        await sleep(60_000);
+        return execute(attempt + 1);
+      }
+      
       throw new AniListAPIError(
         `Network error: ${networkErr instanceof Error ? networkErr.message : String(networkErr)}`,
         0,
@@ -180,8 +195,12 @@ export async function gql<T>(
     const waitMs = updateRateLimitFromHeaders(res);
 
     if (res.status === 429) {
-      await sleep(waitMs);
-      return execute();
+      if (attempt <= 3) {
+        await sleep(waitMs);
+        return execute(attempt + 1);
+      } else {
+        throw new AniListAPIError(`Rate limit exceeded and retries exhausted.`, 429);
+      }
     }
 
     // Always try to read JSON — AniList returns error details in body even on 4xx
