@@ -936,6 +936,23 @@ export async function fetchTargetUserFollowersPage(
 }
 
 /**
+ * Fetch the exact total number of a target user's followers or following.
+ * Relies on PageInfo.total, which is available specifically for these edge cases.
+ */
+export async function fetchTargetNetworkTotal(
+  targetUserId: number,
+  mode:         NetworkFollowMode,
+  token:        string,
+): Promise<number> {
+  const query = mode === 'followers'
+    ? `query ($userId: Int!) { Page { pageInfo { total } followers(userId: $userId) { id } } }`
+    : `query ($userId: Int!) { Page { pageInfo { total } following(userId: $userId) { id } } }`;
+
+  const data = await gql<any>(query, { userId: targetUserId }, token);
+  return data?.Page?.pageInfo?.total || 0;
+}
+
+/**
  * Look up a user by their username and return their numeric ID.
  *
  * @param username  AniList username string (case-insensitive on their side).
@@ -1133,6 +1150,8 @@ export interface NetworkFollowProgress {
   followed:     number;
   skipped:      number;
   total:        number;
+  lifetimeFollowed: number;
+  exactTotal?:  number;
   /** If nonzero, a 5-action cooldown just started and lasts this many ms. */
   cooldownMs?:  number;
 }
@@ -1169,10 +1188,18 @@ export async function runNetworkFollowSession(
   const followed: RawUserNode[] = [];
   const followedThisSession = new Set<number>();
 
+  let exactTotal: number | undefined = undefined;
+  try {
+    exactTotal = await fetchTargetNetworkTotal(targetUserId, mode, token);
+  } catch (err) {
+    console.warn(`[NetworkFollow] Failed to fetch exact total network size:`, err);
+  }
+
   let page       = 1; // Start from page 1 = most recent first
   let hasNext    = true;
   let actionCount = 0;
   let skipped    = 0;
+  let lifetimeFollowed = 0;
 
   outer:
   while (hasNext && followed.length < maxToFollow) {
@@ -1183,6 +1210,8 @@ export async function runNetworkFollowSession(
       followed: followed.length,
       skipped,
       total:    followed.length + skipped,
+      lifetimeFollowed,
+      exactTotal,
     });
 
     // Fetch a page of the target's network
@@ -1200,6 +1229,10 @@ export async function runNetworkFollowSession(
     for (const user of result.users) {
       if (isCancelled?.()) break outer;
       if (followed.length >= maxToFollow) break outer;
+
+      if (alreadyFollowing.has(user.id) || followedThisSession.has(user.id)) {
+        lifetimeFollowed++;
+      }
 
       // Skip if already following, whitelisted, or followed in this session
       if (
@@ -1220,6 +1253,8 @@ export async function runNetworkFollowSession(
             followed: followed.length,
             skipped,
             total:    followed.length + skipped,
+            lifetimeFollowed,
+            exactTotal,
           });
           await sleep(timing.afterFiveBatch + jitter(5_000));
         } else {
@@ -1232,6 +1267,8 @@ export async function runNetworkFollowSession(
         followed: followed.length,
         skipped,
         total:    followed.length + skipped,
+        lifetimeFollowed,
+        exactTotal,
       });
 
       try {
@@ -1239,6 +1276,7 @@ export async function runNetworkFollowSession(
         if (isNowFollowing) {
           followed.push(user);
           followedThisSession.add(user.id);
+          lifetimeFollowed++;
           actionCount++;
         } else {
           // Toggle returned false = we accidentally unfollowed (race condition)
@@ -1247,6 +1285,7 @@ export async function runNetworkFollowSession(
           await toggleFollow(user.id, token, user.name);
           followed.push(user);
           followedThisSession.add(user.id);
+          lifetimeFollowed++;
           actionCount++;
         }
       } catch (err) {
@@ -1263,6 +1302,8 @@ export async function runNetworkFollowSession(
     followed: followed.length,
     skipped,
     total:    followed.length + skipped,
+    lifetimeFollowed,
+    exactTotal,
   });
 
   return followed;

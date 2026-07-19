@@ -122,6 +122,8 @@ type NetworkFollowingState = {
   readonly followed: number;
   readonly skipped:  number;
   readonly total:    number;
+  readonly lifetimeFollowed: number;
+  readonly exactTotal?: number;
 
   /** If > 0, the 5-action cooldown is active. Ticked down by setInterval in main.tsx. */
   readonly cooldownRemainingMs?: number;

@@ -429,6 +429,8 @@ function App() {
               followed: progress.followed,
               skipped: progress.skipped,
               total: progress.total,
+              lifetimeFollowed: progress.lifetimeFollowed,
+              exactTotal: progress.exactTotal,
               cooldownRemainingMs: progress.cooldownMs ?? prev.cooldownRemainingMs,
             } : prev);
           },
@@ -651,7 +653,7 @@ function App() {
           <NotSearching 
             onScan={onScan} 
             onEngage={() => setState({ status: 'engaging', phase: 'Starting engagement...', liked: 0, followed: 0, skipped: 0 })}
-            onNetworkFollow={() => setState({ status: 'network_following', targetUsername: '', mode: 'followers', phase: '', followed: 0, skipped: 0, total: 0 })}
+            onNetworkFollow={() => setState({ status: 'network_following', targetUsername: '', mode: 'followers', phase: '', followed: 0, skipped: 0, total: 0, lifetimeFollowed: 0, exactTotal: undefined })}
             onTargetedEngagement={() => setState({ status: 'targeted_engagement', phase: '', sessionKey: 0, targetGroup: 'followers', config: { maxUsers: 50, activitiesPerUser: 2, includeMessages: false, reciprocalHours: 24, reciprocalMinLikes: 2 }, progress: { processedUsers: 0, totalUsers: 0, likedActivities: 0, skippedActivities: 0 } })}
           />
         )}
@@ -665,7 +667,9 @@ function App() {
               phase: "Initializing...",
               followed: 0,
               skipped: 0,
-              total: 0
+              total: 0,
+              lifetimeFollowed: 0,
+              exactTotal: undefined
             })}
             onCancel={() => setState({ status: 'initial' })}
           />
@@ -722,6 +726,12 @@ function App() {
                 <div>
                   <strong style={{ fontSize: '1.6rem' }}>{state.followed + state.skipped} / {state.total}</strong>
                   <span style={{ display: 'block', fontSize: '0.75rem', color: 'hsla(0,0%,100%,0.5)', marginTop: '2px' }}>Progress</span>
+                </div>
+              )}
+              {state.exactTotal !== undefined && state.exactTotal > 0 && (
+                <div>
+                  <strong style={{ fontSize: '1.6rem', color: '#0a84ff' }}>{state.lifetimeFollowed} / {state.exactTotal}</strong>
+                  <span style={{ display: 'block', fontSize: '0.75rem', color: 'hsla(0,0%,100%,0.5)', marginTop: '2px' }}>Total Followed</span>
                 </div>
               )}
             </div>
