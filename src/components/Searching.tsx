@@ -17,6 +17,8 @@ export interface SearchingProps {
   UserCheckIcon: React.FC;
   UserUncheckIcon: React.FC;
   onTrackFollow: (user: AniListUser) => void;
+  onSelectAll: () => void;
+  onDeselectAll: () => void;
 }
 
 let importFileInput: HTMLInputElement | null = null;
@@ -44,6 +46,8 @@ export const Searching = ({
   UserCheckIcon,
   UserUncheckIcon,
   onTrackFollow,
+  onSelectAll,
+  onDeselectAll,
 }: SearchingProps) => {
   if (state.status !== "scanning") {
     return null;
@@ -139,6 +143,20 @@ export const Searching = ({
           </div>
 
           <div className="sidebar-buttons-grid">
+            <button
+              className="button-secondary"
+              onClick={onSelectAll}
+              title="Select all currently displayed users"
+            >
+              ✅ Select All
+            </button>
+            <button
+              className="button-secondary"
+              onClick={onDeselectAll}
+              title="Deselect all users"
+            >
+              ☐ Deselect All
+            </button>
             <button
               className="button-secondary danger-text"
               onClick={() => {

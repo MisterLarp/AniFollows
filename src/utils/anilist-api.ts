@@ -1262,6 +1262,8 @@ export async function fetchUserActivities(
   limit: number,
   token: string
 ): Promise<RawActivityNode[]> {
+  // NOTE: ActivityType valid values are TEXT, ANIME_LIST, MANGA_LIST.
+  // MEDIA_LIST is NOT a valid ActivityType — it was removed to prevent API errors.
   const query = `
     query($userId: Int, $typeIn: [ActivityType], $perPage: Int) {
       Page(page: 1, perPage: $perPage) {
@@ -1273,7 +1275,8 @@ export async function fetchUserActivities(
       }
     }
   `;
-  const typeIn = includeMessages ? undefined : ['TEXT', 'ANIME_LIST', 'MANGA_LIST', 'MEDIA_LIST'];
+  // Exclude message activities unless user opts in
+  const typeIn = includeMessages ? undefined : ['TEXT', 'ANIME_LIST', 'MANGA_LIST'];
   const variables = { userId, typeIn, perPage: limit };
   const res = await gql<any>(query, variables, token);
   return (res.Page.activities || []).filter((a: any) => a !== null) as RawActivityNode[];
@@ -1385,8 +1388,8 @@ export async function runTargetedEngagementSession(
         if (isCancelled()) break;
         if (likedForThisUser >= config.activitiesPerUser) break;
 
-        const isFirst = actionCount === 0;
-        if (!isFirst) {
+        // Apply 5-action batch rule with pacing
+        if (actionCount > 0) {
           if (actionCount % 5 === 0) {
             onProgress({
               phase: 'Cooling down (5-min batch pause)...',
@@ -1423,6 +1426,12 @@ export async function runTargetedEngagementSession(
     }
 
     processedUsers++;
+
+    // Inter-user delay: always wait between users to avoid hammering the API
+    // when the resolution phase fetches activities for each user sequentially.
+    if (processedUsers < targetUsers.length && !isCancelled()) {
+      await sleep(DEFAULT_TIME_BETWEEN_SCAN_PAGES + jitter(1_000));
+    }
   }
 
   onProgress({

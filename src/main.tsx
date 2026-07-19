@@ -191,6 +191,16 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.status]);
 
+  // Re-compute unfollow candidates whenever followHistoryVersion changes
+  useEffect(() => {
+    if (state.status !== "scanning" || state.results.length === 0) return;
+    const candidates = recalculateUnfollowCandidates(state.results);
+    setState(prev => {
+      if (prev.status !== "scanning") return prev;
+      return { ...prev, unfollowCandidates: candidates };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.status === "scanning" ? state.followHistoryVersion : -1]);
 
   // Effect for unfollowing
   useEffect(() => {
@@ -597,6 +607,21 @@ function App() {
           UserCheckIcon={UserCheckIcon}
           UserUncheckIcon={UserUncheckIcon}
           onTrackFollow={() => {}}
+          onSelectAll={() => {
+            if (state.status !== "scanning") return;
+            const autoUnfollowIds = new Set(state.unfollowCandidates.map(c => c.user.id));
+            const displayed = getUsersForDisplay(
+              state.results, state.whitelistedResults, state.currentTab,
+              state.searchTerm, state.filter, autoUnfollowIds
+            );
+            const currentIds = new Set(state.selectedResults.map(u => u.id));
+            const toAdd = displayed.filter(u => !currentIds.has(u.id));
+            setState({ ...state, selectedResults: [...state.selectedResults, ...toAdd] });
+          }}
+          onDeselectAll={() => {
+            if (state.status !== "scanning") return;
+            setState({ ...state, selectedResults: [] });
+          }}
         />
 
         <Unfollowing
