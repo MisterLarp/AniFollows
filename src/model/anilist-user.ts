@@ -89,7 +89,7 @@ export interface ActivityUser {
 
 // ── Follow History ────────────────────────────────────────────────────────────
 
-export type FollowDateSource = 'live' | 'estimated' | 'manual';
+export type FollowDateSource = 'live' | 'estimated' | 'snapshot' | 'manual';
 
 export interface FollowHistoryEntry {
   readonly userId:     number;
@@ -97,6 +97,8 @@ export interface FollowHistoryEntry {
   /** Unix timestamp (ms) at which we recorded this follow. */
   readonly followedAt: number;
   readonly followDateSource?: FollowDateSource;
+  readonly hasPostedSinceFollow?: boolean;
+  readonly lastActivityCheckedAt?: number;
 }
 
 export interface FollowHistory {
@@ -106,7 +108,10 @@ export interface FollowHistory {
 // ── Auto-Unfollow ─────────────────────────────────────────────────────────────
 
 export enum UnfollowReason {
-  /** 24 hours elapsed and no followback. */
+  /** 24 hours elapsed, user posted after being followed, but still no followback.
+   * This is the "premium" 24h trigger — mirrors Instagram's POSTED_NO_FOLLOWBACK. */
+  POSTED_NO_FOLLOWBACK = 'POSTED_NO_FOLLOWBACK',
+  /** 24 hours elapsed and no followback (soft timeout, no activity check). */
   TIMEOUT_24H          = 'TIMEOUT_24H',
   /** 48 hours elapsed and still no followback. */
   TIMEOUT_48H          = 'TIMEOUT_48H',

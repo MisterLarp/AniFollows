@@ -457,9 +457,16 @@ export const Searching = ({
                       {user.name}
                     </a>
                     {followEntry && (
-                      <span className="follow-tracked-label" title={`Source: ${followEntry.followDateSource ?? "unknown"}`}>
-                        Followed {formatFollowAge(followEntry)} ago
-                      </span>
+                      <div className="flex column gap-micro">
+                        <span className="follow-tracked-label" title={`Source: ${followEntry.followDateSource ?? "unknown"}`}>
+                          Followed {formatFollowAge(followEntry)} ago
+                        </span>
+                        {followEntry.hasPostedSinceFollow && (
+                          <span className="follow-tracked-label" style={{ color: '#ff9f0a' }} title="User has posted an activity on AniList since you followed them">
+                            📢 Posted
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                   {reasonBadge && (

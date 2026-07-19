@@ -14,7 +14,7 @@ export { FOLLOW_HISTORY_STORAGE_KEY };
  *  - 'estimated' → inferred from position in the following list (earlier entries = older)
  *  - 'manual'    → user explicitly set the follow time via the UI
  */
-export type FollowDateSource = 'live' | 'estimated' | 'manual';
+export type FollowDateSource = 'live' | 'estimated' | 'snapshot' | 'manual';
 
 /**
  * A single tracked follow event.
@@ -29,6 +29,17 @@ export interface FollowHistoryEntry {
   readonly followedAt:      number;
   /** How the followedAt timestamp was determined. */
   readonly followDateSource?: FollowDateSource;
+  /**
+   * True if the user has posted an AniList activity AFTER we followed them.
+   * Detected by querying their activities and checking if createdAt > followedAt.
+   * Mirrors the Instagram implementation's hasPostedSinceFollow field exactly.
+   */
+  readonly hasPostedSinceFollow?: boolean;
+  /**
+   * Unix timestamp (ms) of the last time we queried this user's activity
+   * to update hasPostedSinceFollow. Avoids redundant API calls.
+   */
+  readonly lastActivityCheckedAt?: number;
 }
 
 export interface FollowHistory {

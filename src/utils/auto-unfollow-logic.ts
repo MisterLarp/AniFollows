@@ -13,12 +13,24 @@ export function shouldUnfollowUser(
   }
 
   // If they already followed back, we don't auto-unfollow them based on time.
-  // (EGO_AURA ratio check was removed per spec).
   if (user.isFollower) {
     return null;
   }
 
-  // 48 hours regardless + no followback (Hard Timeout)
+  // ── POSTED_NO_FOLLOWBACK (24h + posted + no followback) ──────────────────────
+  // Mirrors Instagram's POSTED_NO_FOLLOWBACK exactly:
+  // If 24h have passed AND the user posted on AniList AFTER we followed them
+  // AND they still haven't followed back → highest-priority 24h candidate.
+  if (hoursSinceFollow >= AUTO_UNFOLLOW_HOURS_SOFT && followEntry.hasPostedSinceFollow) {
+    return {
+      user,
+      reason: UnfollowReason.POSTED_NO_FOLLOWBACK,
+      followEntry,
+      hoursSinceFollow,
+    };
+  }
+
+  // ── TIMEOUT_48H (48h hard timeout regardless of posting) ─────────────────────
   if (hoursSinceFollow >= AUTO_UNFOLLOW_HOURS_HARD) {
     return {
       user,
@@ -28,10 +40,9 @@ export function shouldUnfollowUser(
     };
   }
 
-  // 24 hours + no followback (Soft Timeout)
-  // For AniList, since we don't have "post detection" to serve as an activity ping,
-  // we default to flagging them after 24h as a soft timeout. The user can still
-  // manually decide whether to execute the unfollow.
+  // ── TIMEOUT_24H (24h soft timeout, no activity enrichment yet) ───────────────
+  // hasPostedSinceFollow is undefined/false, but 24h has passed.
+  // This is the fallback for users where activity hasn't been checked yet.
   if (hoursSinceFollow >= AUTO_UNFOLLOW_HOURS_SOFT) {
     return {
       user,
@@ -66,6 +77,8 @@ export function getUnfollowCandidates(
 
 export function getUnfollowReasonLabel(reason: UnfollowReason): string {
   switch (reason) {
+    case UnfollowReason.POSTED_NO_FOLLOWBACK:
+      return 'Posted but no followback (24h+)';
     case UnfollowReason.TIMEOUT_24H:
       return '24h+ (No follow back)';
     case UnfollowReason.TIMEOUT_48H:
@@ -77,6 +90,8 @@ export function getUnfollowReasonLabel(reason: UnfollowReason): string {
 
 export function getUnfollowReasonBadge(reason: UnfollowReason): { emoji: string; text: string } {
   switch (reason) {
+    case UnfollowReason.POSTED_NO_FOLLOWBACK:
+      return { emoji: '📢', text: '24h+ Posted' };
     case UnfollowReason.TIMEOUT_24H:
       return { emoji: '⏳', text: '24h+ Timeout' };
     case UnfollowReason.TIMEOUT_48H:

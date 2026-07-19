@@ -101,6 +101,9 @@ type EngagingState = {
   readonly liked:    number;
   readonly followed: number;
   readonly skipped:  number;
+
+  /** If > 0, the 5-action cooldown is active. Ticked down by setInterval in main.tsx. */
+  readonly cooldownRemainingMs?: number;
 };
 
 // ── Network Following ─────────────────────────────────────────────────────────
@@ -119,6 +122,9 @@ type NetworkFollowingState = {
   readonly followed: number;
   readonly skipped:  number;
   readonly total:    number;
+
+  /** If > 0, the 5-action cooldown is active. Ticked down by setInterval in main.tsx. */
+  readonly cooldownRemainingMs?: number;
 };
 
 // ── Targeted Engagement ────────────────────────────────────────────────────────
@@ -155,6 +161,9 @@ type TargetedEngagementState = {
     likedActivities: number;
     skippedActivities: number;
   };
+
+  /** If > 0, the 5-action cooldown is active. Ticked down by setInterval in main.tsx. */
+  readonly cooldownRemainingMs?: number;
 };
 
 // ── Union Export ──────────────────────────────────────────────────────────────

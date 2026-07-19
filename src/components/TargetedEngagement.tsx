@@ -2,6 +2,14 @@ import React from 'react';
 import { useState } from 'preact/hooks';
 import type { TargetedEngagementState } from '../model/state';
 
+function formatCooldown(ms: number): string {
+  const totalSec = Math.ceil(ms / 1000);
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  if (mins > 0) return `${mins}m ${secs.toString().padStart(2, '0')}s`;
+  return `${secs}s`;
+}
+
 interface TargetedEngagementProps {
   state: TargetedEngagementState;
   onStart: (
@@ -51,7 +59,23 @@ export const TargetedEngagement = ({ state, onStart, onCancel }: TargetedEngagem
           </div>
         </div>
 
-        <div className="form-actions" style={{ justifyContent: 'center', marginTop: '2rem' }}>
+        <div className="form-actions" style={{ justifyContent: 'center', marginTop: '1.5rem' }}>
+          {state.cooldownRemainingMs != null && state.cooldownRemainingMs > 0 && (
+            <div style={{
+              marginBottom: '1rem',
+              padding: '0.75rem 1rem',
+              background: 'rgba(255,159,10,0.12)',
+              border: '1px solid rgba(255,159,10,0.3)',
+              borderRadius: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              fontSize: '0.9rem',
+              color: '#ff9f0a'
+            }}>
+              ⏳ <strong>Next batch in: {formatCooldown(state.cooldownRemainingMs)}</strong>
+            </div>
+          )}
           {state.phase !== 'Targeted engagement session complete.' ? (
             <button type="button" className="btn btn-primary" style={{ backgroundColor: '#ff3b30' }} onClick={onCancel}>
               Stop Session

@@ -26,6 +26,7 @@ import {
   AniListAvatar,
   PageInfo,
 } from '../model/anilist-user';
+import { trackFollowNow } from './follow-date-sync';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § 1 — Primitive Helpers
@@ -581,13 +582,17 @@ interface ToggleFollowResult {
  *
  * @param userId  Target user's numeric ID.
  * @param token   Bearer token (required — this is a mutation).
+ * @param username Optional username to sync with follow-date tracking.
  */
-export async function toggleFollow(userId: number, token: string): Promise<boolean> {
+export async function toggleFollow(userId: number, token: string, username?: string): Promise<boolean> {
   const data = await gql<ToggleFollowResult>(
     TOGGLE_FOLLOW_MUTATION,
     { userId },
     token,
   );
+  if (data.ToggleFollow.isFollowing && username) {
+    trackFollowNow(userId, username);
+  }
   return data.ToggleFollow.isFollowing;
 }
 
@@ -616,6 +621,8 @@ export type ActionProgressCallback = (
   result:       ActionResult,
   completed:    number,
   total:        number,
+  /** If nonzero, the batcher just entered a cooldown period of this many ms. */
+  cooldownMs?:  number,
 ) => void;
 
 export interface BatcherTimings {
@@ -670,7 +677,7 @@ export async function executeBatchedActions(
     let result: ActionResult;
 
     try {
-      const isFollowingNow = await toggleFollow(user.id, token);
+      const isFollowingNow = await toggleFollow(user.id, token, user.name);
 
       // Verify the API returned the state we expected.
       // ToggleFollow is a toggle — so if we wanted to follow, isFollowingNow
@@ -715,11 +722,14 @@ export async function executeBatchedActions(
 
     // ── 5-action batch boundary ───────────────────────────────────────────────
     if (completedCount % 5 === 0) {
+      const cooldownMs = timing.afterFiveBatch + jitter(5_000); // +jitter up to 5s
       console.info(
         `[ActionBatcher] Completed ${completedCount}/${total} actions. ` +
-        `Sleeping ${timing.afterFiveBatch / 60_000} min (5-per-5-min rule)…`,
+        `Sleeping ${Math.round(cooldownMs / 60_000)} min (5-per-5-min rule)…`,
       );
-      await sleep(timing.afterFiveBatch + jitter(5_000)); // +jitter up to 5s
+      // Notify UI about the cooldown BEFORE sleeping so it can start the countdown.
+      onProgress?.(result, results.length, total, cooldownMs);
+      await sleep(cooldownMs);
     } else {
       // Standard inter-action delay with small random jitter
       await sleep(timing.betweenActions + jitter(800));
@@ -968,10 +978,11 @@ export async function fetchUserByName(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface EngagementProgress {
-  liked:     number;
-  followed:  number;
-  skipped:   number;
-  phase:     string;
+  phase:      string;
+  liked:      number;
+  followed:   number;
+  skipped:    number;
+  cooldownMs?: number;
 }
 
 export type EngagementProgressCallback = (p: EngagementProgress) => void;
@@ -1018,9 +1029,12 @@ export async function runEngagementSession(
     // Wait before the action (unless it's literally the first one)
     if (!isFirst) {
       if (actionCount % 5 === 0) {
+        const cooldownMs = DEFAULT_TIME_AFTER_FIVE_ACTIONS + jitter(5_000);
         progress.phase = 'Cooling down (5-min batch pause)…';
+        progress.cooldownMs = cooldownMs;
         onProgress?.({ ...progress });
-        await sleep(DEFAULT_TIME_AFTER_FIVE_ACTIONS + jitter(5_000));
+        await sleep(cooldownMs);
+        progress.cooldownMs = undefined; // clear it for next progress updates
       } else {
         await sleep(DEFAULT_TIME_BETWEEN_ACTIONS + jitter(800));
       }
@@ -1072,14 +1086,15 @@ export async function runEngagementSession(
       const authorId = activity.userId;
       if (
         authorId &&
+        activity.user &&
         !alreadyFollowing.has(authorId) &&
         !followedThisSession.has(authorId)
       ) {
-        progress.phase = `Following author (id=${authorId})…`;
+        progress.phase = `Following ${activity.user.name}…`;
         onProgress?.({ ...progress });
 
         await doAction(`Follow author ${authorId}`, async () => {
-          const isNowFollowing = await toggleFollow(authorId, token);
+          const isNowFollowing = await toggleFollow(authorId, token, activity.user!.name);
           if (isNowFollowing) {
             followedThisSession.add(authorId);
             progress.followed++;
@@ -1112,10 +1127,12 @@ export async function runEngagementSession(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface NetworkFollowProgress {
-  phase:     string;
-  followed:  number;
-  skipped:   number;
-  total:     number;
+  phase:        string;
+  followed:     number;
+  skipped:      number;
+  total:        number;
+  /** If nonzero, a 5-action cooldown just started and lasts this many ms. */
+  cooldownMs?:  number;
 }
 
 export type NetworkFollowProgressCallback = (p: NetworkFollowProgress) => void;
@@ -1216,7 +1233,7 @@ export async function runNetworkFollowSession(
       });
 
       try {
-        const isNowFollowing = await toggleFollow(user.id, token);
+        const isNowFollowing = await toggleFollow(user.id, token, user.name);
         if (isNowFollowing) {
           followed.push(user);
           followedThisSession.add(user.id);
@@ -1225,7 +1242,7 @@ export async function runNetworkFollowSession(
           // Toggle returned false = we accidentally unfollowed (race condition)
           // Re-toggle to fix
           console.warn(`[NetworkFollow] Toggle returned false for ${user.name}, re-toggling.`);
-          await toggleFollow(user.id, token);
+          await toggleFollow(user.id, token, user.name);
           followed.push(user);
           followedThisSession.add(user.id);
           actionCount++;
@@ -1269,6 +1286,7 @@ export interface TargetedEngagementProgressCallback {
     totalUsers: number;
     likedActivities: number;
     skippedActivities: number;
+    cooldownMs?: number;
   }): void;
 }
 
@@ -1410,14 +1428,16 @@ export async function runTargetedEngagementSession(
         // Apply 5-action batch rule with pacing
         if (actionCount > 0) {
           if (actionCount % 5 === 0) {
+            const cooldownMs = timing.afterFiveBatch + jitter(5_000);
             onProgress({
               phase: 'Cooling down (5-min batch pause)...',
               processedUsers,
               totalUsers: targetUsers.length,
               likedActivities,
               skippedActivities,
+              cooldownMs,
             });
-            await sleep(timing.afterFiveBatch + jitter(5_000));
+            await sleep(cooldownMs);
           } else {
             await sleep(timing.betweenActions + jitter(800));
           }
@@ -1460,4 +1480,130 @@ export async function runTargetedEngagementSession(
     likedActivities,
     skippedActivities,
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § Activity Enrichment — "Has Posted Since Follow" Detection
+//
+// After a scan completes, for each user in our follow-history (users we followed
+// via this app), we query their most recent AniList activity. If createdAt is
+// AFTER our followedAt timestamp, they have been active since we followed them.
+// This enables the POSTED_NO_FOLLOWBACK 24h rule, mirroring the Instagram logic.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const LATEST_ACTIVITY_QUERY = `
+  query ($userId: Int!) {
+    Page(page: 1, perPage: 1) {
+      activities(userId: $userId, sort: ID_DESC, type_in: [TEXT, ANIME_LIST, MANGA_LIST]) {
+        ... on ListActivity  { createdAt }
+        ... on TextActivity  { createdAt }
+      }
+    }
+  }
+`;
+
+interface LatestActivityData {
+  Page: {
+    activities: Array<{ createdAt: number }>;
+  };
+}
+
+/**
+ * Fetch the createdAt timestamp (Unix seconds) of a user's most recent activity.
+ * Returns null if the user has no activity or the query fails.
+ * This is a read-only, lightweight query (1 request per user).
+ */
+export async function fetchLatestActivityTimestamp(
+  userId: number,
+  token: string,
+): Promise<number | null> {
+  try {
+    const data = await gql<LatestActivityData>(LATEST_ACTIVITY_QUERY, { userId }, token);
+    const activities = data.Page.activities;
+    if (!activities || activities.length === 0) return null;
+    return activities[0].createdAt; // Unix seconds from AniList
+  } catch (err) {
+    console.warn(`[Enrichment] Failed to fetch activity for user ${userId}:`, err);
+    return null;
+  }
+}
+
+import { FollowHistoryEntry } from '../model/follow-history';
+import { updateFollowEntry } from './follow-history-manager';
+
+export interface EnrichmentProgress {
+  checked: number;
+  total:   number;
+  updated: number; // how many had hasPostedSinceFollow flipped to true
+}
+
+/**
+ * Background enrichment pass: for each tracked-follow entry, check if the
+ * user has posted on AniList since we followed them.
+ *
+ * - Only processes users still in the scan results (identified by userId).
+ * - Skips entries where `hasPostedSinceFollow` is already true (no need to re-check).
+ * - Skips entries checked within the last 2 hours to avoid redundant API calls.
+ * - Applies `DEFAULT_TIME_BETWEEN_SCAN_PAGES` delay between each check.
+ *
+ * @param entries      Subset of FollowHistoryEntry records to enrich.
+ * @param token        Bearer token.
+ * @param onProgress   Called after each user is checked.
+ * @param isCancelled  Abort predicate.
+ */
+export async function enrichFollowHistoryWithActivity(
+  entries: readonly FollowHistoryEntry[],
+  token: string,
+  onProgress?: (p: EnrichmentProgress) => void,
+  isCancelled?: () => boolean,
+): Promise<void> {
+  const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+  const now = Date.now();
+
+  // Filter to entries that are worth checking:
+  // - Not already confirmed as posted (skip if already true)
+  // - Not checked recently (within 2h)
+  // - Within 96h (the auto-unfollow tracking window)
+  const toCheck = entries.filter(e => {
+    if (e.hasPostedSinceFollow) return false; // already confirmed
+    if (e.lastActivityCheckedAt && now - e.lastActivityCheckedAt < TWO_HOURS_MS) return false;
+    if (now - e.followedAt > 96 * 60 * 60 * 1000) return false; // too old
+    return true;
+  });
+
+  let checked = 0;
+  let updated = 0;
+
+  for (const entry of toCheck) {
+    if (isCancelled?.()) break;
+
+    const latestCreatedAtSec = await fetchLatestActivityTimestamp(entry.userId, token);
+    const checkedAt = Date.now();
+
+    if (latestCreatedAtSec !== null) {
+      // AniList returns Unix seconds; followedAt is Unix ms
+      const latestMs = latestCreatedAtSec * 1000;
+      const hasPosted = latestMs > entry.followedAt;
+
+      if (hasPosted) {
+        updateFollowEntry(entry.userId, {
+          hasPostedSinceFollow: true,
+          lastActivityCheckedAt: checkedAt,
+        });
+        updated++;
+      } else {
+        updateFollowEntry(entry.userId, { lastActivityCheckedAt: checkedAt });
+      }
+    } else {
+      // No activity found — record that we checked to avoid re-querying too soon
+      updateFollowEntry(entry.userId, { lastActivityCheckedAt: checkedAt });
+    }
+
+    checked++;
+    onProgress?.({ checked, total: toCheck.length, updated });
+
+    if (checked < toCheck.length && !isCancelled?.()) {
+      await sleep(DEFAULT_TIME_BETWEEN_SCAN_PAGES + jitter(500));
+    }
+  }
 }

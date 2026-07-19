@@ -28,7 +28,9 @@ import { getRecentFollows } from "./utils/follow-history-manager";
 import { getUnfollowCandidates } from "./utils/auto-unfollow-logic";
 import { recordScriptRun, getSessionStats } from "./utils/session-guard";
 import { getStoredToken, loadOrFetchViewer, getStoredViewer } from "./utils/anilist-auth";
-import { executeBatchedActions, fetchAllFollowers, fetchAllFollowing, fetchRecentLikers, fetchUserByName, mergeFollowLists, runEngagementSession, runNetworkFollowSession, runTargetedEngagementSession, sleep } from "./utils/anilist-api";
+import { executeBatchedActions, fetchAllFollowers, fetchAllFollowing, fetchRecentLikers, fetchUserByName, mergeFollowLists, runEngagementSession, runNetworkFollowSession, runTargetedEngagementSession, sleep, enrichFollowHistoryWithActivity } from "./utils/anilist-api";
+import { loadFollowHistory } from "./utils/follow-history-manager";
+import { syncFollowHistoryFromFollowingList } from "./utils/follow-date-sync";
 
 let scanningPaused = false;
 
@@ -41,10 +43,45 @@ function recalculateUnfollowCandidates(results: readonly AniListUser[]): ReturnT
   return getUnfollowCandidates(results, recentFollows);
 }
 
+/** Format a millisecond countdown as "Xm Ys" or "Xs" */
+function formatCooldown(ms: number): string {
+  const totalSec = Math.ceil(ms / 1000);
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  if (mins > 0) return `${mins}m ${secs.toString().padStart(2, '0')}s`;
+  return `${secs}s`;
+}
+
 function App() {
   const [token, setTokenState] = useState<string | null>(getStoredToken());
   const [state, setState] = useState<State>({ status: "initial" });
   const [toast, setToast] = useState<{ readonly show: false } | { readonly show: true; readonly text: string }>({ show: false });
+
+  // Ref for the cooldown countdown interval — cleared whenever the cooldown ends or status changes
+  const cooldownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const clearCooldownInterval = () => {
+    if (cooldownIntervalRef.current !== null) {
+      clearInterval(cooldownIntervalRef.current);
+      cooldownIntervalRef.current = null;
+    }
+  };
+
+  /** Start a visible countdown in state, ticking down every second. */
+  const startCooldownCountdown = (cooldownMs: number, statusFilter: State['status']) => {
+    clearCooldownInterval();
+    const endsAt = Date.now() + cooldownMs;
+    cooldownIntervalRef.current = setInterval(() => {
+      const remaining = Math.max(0, endsAt - Date.now());
+      setState(prev => {
+        if (prev.status !== statusFilter) { clearCooldownInterval(); return prev; }
+        if (remaining === 0) {
+          clearCooldownInterval();
+          return { ...prev, cooldownRemainingMs: 0 } as typeof prev;
+        }
+        return { ...prev, cooldownRemainingMs: remaining } as typeof prev;
+      });
+    }, 1_000);
+  };
 
   const [timings, setTimings] = useState<Timings>(() => {
     const storedTimings = loadTimings();
@@ -179,6 +216,56 @@ function App() {
           };
         });
         setToast({ show: false });
+
+        // ── Auto-Sync Follow History ──────────────────────────────────────────
+        // Synchronizes new follows from the `following` list that occurred
+        // outside this app or on other devices since the last scan snapshot.
+        const scanTimestamp = Date.now();
+        syncFollowHistoryFromFollowingList(following, scanTimestamp, (prog) => {
+          if (!cancelled) {
+            setToast({ show: true, text: `Syncing history: ${prog.phase} (${prog.current}/${prog.total})` });
+          }
+        }).then((addedCount) => {
+          if (cancelled) return;
+          if (addedCount > 0) {
+            // Recompute unfollow candidates now that history is synchronized
+            setState(prev => {
+              if (prev.status !== 'scanning') return prev;
+              const updatedCandidates = recalculateUnfollowCandidates(prev.results);
+              return { ...prev, unfollowCandidates: updatedCandidates, followHistoryVersion: prev.followHistoryVersion + 1 };
+            });
+          }
+          setToast({ show: false });
+        }).catch(err => {
+          console.warn('[Sync] Follow history sync failed:', err);
+          setToast({ show: false });
+        });
+
+        // ── Background activity enrichment ────────────────────────────────────
+        // After scan, silently check if any tracked follows have posted on AniList
+        // since we followed them. This enables POSTED_NO_FOLLOWBACK detection.
+        // Runs as a fire-and-forget, fully rate-limited, does NOT block the UI.
+        if (token) {
+          const history = loadFollowHistory();
+          if (history && history.entries.length > 0) {
+            enrichFollowHistoryWithActivity(
+              history.entries,
+              token,
+              (progress) => {
+                if (cancelled) return;
+                if (progress.updated > 0) {
+                  // Re-compute candidates now that hasPostedSinceFollow flags updated
+                  setState(prev => {
+                    if (prev.status !== 'scanning') return prev;
+                    const updatedCandidates = recalculateUnfollowCandidates(prev.results);
+                    return { ...prev, unfollowCandidates: updatedCandidates, followHistoryVersion: prev.followHistoryVersion + 1 };
+                  });
+                }
+              },
+              () => cancelled,
+            ).catch(err => console.warn('[Enrichment] Background enrichment error:', err));
+          }
+        }
       } catch (err) {
         console.error(err);
         setToast({ show: true, text: `Scan failed: ${err instanceof Error ? err.message : String(err)}` });
@@ -271,12 +358,16 @@ function App() {
           alreadyFollowingIds,
           (progress) => {
             if (cancelled) return;
+            if (progress.cooldownMs && progress.cooldownMs > 0) {
+              startCooldownCountdown(progress.cooldownMs, 'engaging');
+            }
             setState(prev => prev.status === 'engaging' ? {
               ...prev,
               phase: progress.phase,
               liked: progress.liked,
               followed: progress.followed,
-              skipped: progress.skipped
+              skipped: progress.skipped,
+              cooldownRemainingMs: progress.cooldownMs ?? prev.cooldownRemainingMs,
             } : prev);
           },
           () => cancelled
@@ -329,12 +420,16 @@ function App() {
           },
           (progress) => {
             if (cancelled) return;
+            if (progress.cooldownMs && progress.cooldownMs > 0) {
+              startCooldownCountdown(progress.cooldownMs, 'network_following');
+            }
             setState(prev => prev.status === 'network_following' ? {
               ...prev,
               phase: progress.phase,
               followed: progress.followed,
               skipped: progress.skipped,
-              total: progress.total
+              total: progress.total,
+              cooldownRemainingMs: progress.cooldownMs ?? prev.cooldownRemainingMs,
             } : prev);
           },
           () => cancelled
@@ -346,7 +441,7 @@ function App() {
 
     runNetwork();
 
-    return () => { cancelled = true; };
+    return () => { cancelled = true; clearCooldownInterval(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.status, state.status === "network_following" ? state.targetUsername : ""]);
 
@@ -441,6 +536,9 @@ function App() {
           token,
           (progress) => {
             if (cancelled) return;
+            if (progress.cooldownMs && progress.cooldownMs > 0) {
+              startCooldownCountdown(progress.cooldownMs, 'targeted_engagement');
+            }
             setState(prev => prev.status === 'targeted_engagement' ? {
               ...prev,
               phase: progress.phase,
@@ -449,7 +547,8 @@ function App() {
                 totalUsers: progress.totalUsers,
                 likedActivities: progress.likedActivities,
                 skippedActivities: progress.skippedActivities
-              }
+              },
+              cooldownRemainingMs: progress.cooldownMs ?? prev.cooldownRemainingMs,
             } : prev);
           },
           () => cancelled
@@ -627,6 +726,23 @@ function App() {
               )}
             </div>
 
+            {state.cooldownRemainingMs != null && state.cooldownRemainingMs > 0 && (
+              <div style={{
+                margin: '1rem 0 0',
+                padding: '0.75rem 1rem',
+                background: 'rgba(255,159,10,0.12)',
+                border: '1px solid rgba(255,159,10,0.3)',
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                fontSize: '0.9rem',
+                color: '#ff9f0a'
+              }}>
+                ⏳ <strong>Next batch in: {formatCooldown(state.cooldownRemainingMs)}</strong>
+              </div>
+            )}
+
             {state.phase === "Network follow session complete." && (
               <div style={{ marginTop: '1.5rem', textAlign: 'center' }}>
                 <button className="btn btn-primary" onClick={() => setState({ status: 'initial' })}>
@@ -646,6 +762,23 @@ function App() {
               <div><strong>{state.followed}</strong> Followed</div>
               <div><strong>{state.skipped}</strong> Skipped</div>
             </div>
+
+            {state.cooldownRemainingMs != null && state.cooldownRemainingMs > 0 && (
+              <div style={{
+                margin: '1rem 0 0',
+                padding: '0.75rem 1rem',
+                background: 'rgba(255,159,10,0.12)',
+                border: '1px solid rgba(255,159,10,0.3)',
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                fontSize: '0.9rem',
+                color: '#ff9f0a'
+              }}>
+                ⏳ <strong>Next batch in: {formatCooldown(state.cooldownRemainingMs)}</strong>
+              </div>
+            )}
           </div>
         )}
 
