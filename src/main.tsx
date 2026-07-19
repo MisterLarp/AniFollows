@@ -597,10 +597,43 @@ function App() {
           <div className="network-follow-status panel">
             <h2>Following {state.targetUsername}'s {state.mode}</h2>
             <div className="status-phase">{state.phase}</div>
-            <div className="status-stats">
-              <div><strong>{state.followed}</strong> Followed</div>
-              <div><strong>{state.skipped}</strong> Skipped</div>
+
+            {state.total > 0 && (
+              <div style={{ margin: '1rem 0 0.5rem', position: 'relative', height: '6px', background: 'hsla(0,0%,100%,0.08)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{
+                  position: 'absolute', top: 0, left: 0, height: '100%',
+                  width: `${Math.min(100, Math.round(((state.followed + state.skipped) / state.total) * 100))}%`,
+                  background: 'linear-gradient(90deg, #007aff, #00c6ff)',
+                  borderRadius: '4px',
+                  transition: 'width 0.4s ease'
+                }} />
+              </div>
+            )}
+
+            <div className="status-stats" style={{ marginTop: '1rem' }}>
+              <div>
+                <strong style={{ fontSize: '1.6rem', color: '#34c759' }}>{state.followed}</strong>
+                <span style={{ display: 'block', fontSize: '0.75rem', color: 'hsla(0,0%,100%,0.5)', marginTop: '2px' }}>Followed</span>
+              </div>
+              <div>
+                <strong style={{ fontSize: '1.6rem', color: '#ff9f0a' }}>{state.skipped}</strong>
+                <span style={{ display: 'block', fontSize: '0.75rem', color: 'hsla(0,0%,100%,0.5)', marginTop: '2px' }}>Skipped</span>
+              </div>
+              {state.total > 0 && (
+                <div>
+                  <strong style={{ fontSize: '1.6rem' }}>{state.followed + state.skipped} / {state.total}</strong>
+                  <span style={{ display: 'block', fontSize: '0.75rem', color: 'hsla(0,0%,100%,0.5)', marginTop: '2px' }}>Progress</span>
+                </div>
+              )}
             </div>
+
+            {state.phase === "Network follow session complete." && (
+              <div style={{ marginTop: '1.5rem', textAlign: 'center' }}>
+                <button className="btn btn-primary" onClick={() => setState({ status: 'initial' })}>
+                  Return to Dashboard
+                </button>
+              </div>
+            )}
           </div>
         )}
 
