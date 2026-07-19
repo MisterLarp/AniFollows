@@ -1,4 +1,4 @@
-import React, { ChangeEvent, useEffect, useState } from "react";
+import React, { ChangeEvent, useEffect, useRef, useState } from "react";
 import { render } from "react-dom";
 import "./styles.scss";
 
@@ -352,9 +352,26 @@ function App() {
 
 
   // Effect for Targeted Engagement
+  // IMPORTANT: dependency array uses sessionKey (not phase).
+  // sessionKey is incremented exactly once when the user hits "Start Engaging".
+  // This means the effect runs once per session regardless of how many times
+  // state.phase changes during progress updates, preventing repeated fetchAllFollowers calls.
+  const targetedEngagementConfigRef = useRef<{
+    targetGroup: string;
+    config: any;
+  } | null>(null);
+
   useEffect(() => {
-    if (state.status !== "targeted_engagement" || !state.phase || !token) return;
+    if (state.status !== "targeted_engagement" || !token) return;
+    // sessionKey 0 means the config screen is showing, not yet started
+    if (state.sessionKey === 0) return;
     if (state.phase === "Targeted engagement session complete.") return;
+
+    // Store config for this session
+    targetedEngagementConfigRef.current = {
+      targetGroup: state.targetGroup,
+      config: state.config,
+    };
 
     let cancelled = false;
 
@@ -362,43 +379,60 @@ function App() {
       const viewer = getStoredViewer();
       if (!viewer) return;
 
+      const { targetGroup, config } = targetedEngagementConfigRef.current!;
+
       try {
         let targetUsers: readonly any[] = [];
 
         setState(prev => prev.status === 'targeted_engagement' ? { ...prev, phase: "Resolving target users..." } : prev);
 
-        if (state.targetGroup === 'followers') {
+        if (targetGroup === 'followers') {
           targetUsers = await fetchAllFollowers(viewer.id, token);
-        } else if (state.targetGroup === 'following') {
+        } else if (targetGroup === 'following') {
           targetUsers = await fetchAllFollowing(viewer.id, token);
-        } else if (state.targetGroup === 'mutuals') {
+        } else if (targetGroup === 'mutuals') {
+          setState(prev => prev.status === 'targeted_engagement' ? { ...prev, phase: "Fetching followers list..." } : prev);
           const followers = await fetchAllFollowers(viewer.id, token);
+          if (cancelled) return;
+          setState(prev => prev.status === 'targeted_engagement' ? { ...prev, phase: "Fetching following list..." } : prev);
           const following = await fetchAllFollowing(viewer.id, token);
           const followingIds = new Set(following.map(u => u.id));
           targetUsers = followers.filter(u => followingIds.has(u.id));
-        } else if (state.targetGroup === 'non_mutuals') {
-          const followers = await fetchAllFollowers(viewer.id, token);
+        } else if (targetGroup === 'non_mutuals') {
+          setState(prev => prev.status === 'targeted_engagement' ? { ...prev, phase: "Fetching following list..." } : prev);
           const following = await fetchAllFollowing(viewer.id, token);
+          if (cancelled) return;
+          setState(prev => prev.status === 'targeted_engagement' ? { ...prev, phase: "Fetching followers list..." } : prev);
+          const followers = await fetchAllFollowers(viewer.id, token);
           const followerIds = new Set(followers.map(u => u.id));
           targetUsers = following.filter(u => !followerIds.has(u.id));
-        } else if (state.targetGroup === 'reciprocal') {
+        } else if (targetGroup === 'reciprocal') {
+          setState(prev => prev.status === 'targeted_engagement' ? { ...prev, phase: "Fetching recent likers from notifications..." } : prev);
           targetUsers = await fetchRecentLikers(
-            state.config.reciprocalHours || 24,
-            state.config.reciprocalMinLikes || 2,
+            config.reciprocalHours || 24,
+            config.reciprocalMinLikes || 2,
             token
           );
         }
 
+        if (cancelled) return;
+
         // Apply maxUsers limit
-        targetUsers = targetUsers.slice(0, state.config.maxUsers);
+        targetUsers = targetUsers.slice(0, config.maxUsers);
+
+        setState(prev => prev.status === 'targeted_engagement' ? {
+          ...prev,
+          phase: `Starting engagement for ${targetUsers.length} users...`,
+          progress: { processedUsers: 0, totalUsers: targetUsers.length, likedActivities: 0, skippedActivities: 0 }
+        } : prev);
 
         if (cancelled) return;
 
         await runTargetedEngagementSession(
           targetUsers,
           {
-            activitiesPerUser: state.config.activitiesPerUser,
-            includeMessages: state.config.includeMessages,
+            activitiesPerUser: config.activitiesPerUser,
+            includeMessages: config.includeMessages,
           },
           {
             betweenActions: timings.timeBetweenActions,
@@ -421,7 +455,9 @@ function App() {
           () => cancelled
         );
       } catch (err) {
-        setToast({ show: true, text: `Error: ${err instanceof Error ? err.message : String(err)}` });
+        if (!cancelled) {
+          setToast({ show: true, text: `Error: ${err instanceof Error ? err.message : String(err)}` });
+        }
       }
     };
 
@@ -429,7 +465,11 @@ function App() {
 
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.status, state.status === "targeted_engagement" ? state.phase : ""]);
+  }, [
+    state.status,
+    // Re-run only when a new session is kicked off (sessionKey increments on each Start)
+    state.status === "targeted_engagement" ? state.sessionKey : 0,
+  ]);
 
   if (!token) {
     return <AuthScreen onTokenSubmitted={handleTokenSubmitted} />;
@@ -513,7 +553,7 @@ function App() {
             onScan={onScan} 
             onEngage={() => setState({ status: 'engaging', phase: 'Starting engagement...', liked: 0, followed: 0, skipped: 0 })}
             onNetworkFollow={() => setState({ status: 'network_following', targetUsername: '', mode: 'followers', phase: '', followed: 0, skipped: 0, total: 0 })}
-            onTargetedEngagement={() => setState({ status: 'targeted_engagement', phase: '', targetGroup: 'followers', config: { maxUsers: 50, activitiesPerUser: 2, includeMessages: false, reciprocalHours: 24, reciprocalMinLikes: 2 }, progress: { processedUsers: 0, totalUsers: 0, likedActivities: 0, skippedActivities: 0 } })}
+            onTargetedEngagement={() => setState({ status: 'targeted_engagement', phase: '', sessionKey: 0, targetGroup: 'followers', config: { maxUsers: 50, activitiesPerUser: 2, includeMessages: false, reciprocalHours: 24, reciprocalMinLikes: 2 }, progress: { processedUsers: 0, totalUsers: 0, likedActivities: 0, skippedActivities: 0 } })}
           />
         )}
         
@@ -535,18 +575,20 @@ function App() {
         {state.status === "targeted_engagement" && (
           <TargetedEngagement 
             state={state}
-            onStart={(targetGroup, config) => setState({
+            onStart={(targetGroup, config) => setState(prev => ({
+              ...prev,
               status: 'targeted_engagement',
               targetGroup,
               config,
               phase: 'Initializing...',
+              sessionKey: prev.status === 'targeted_engagement' ? (prev.sessionKey + 1) : 1,
               progress: {
                 processedUsers: 0,
                 totalUsers: 0,
                 likedActivities: 0,
                 skippedActivities: 0
               }
-            })}
+            }))}
             onCancel={() => setState({ status: 'initial' })}
           />
         )}

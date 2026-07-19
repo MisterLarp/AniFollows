@@ -128,6 +128,13 @@ type TargetedEngagementState = {
   
   /** Current UI phase or description. */
   readonly phase: string;
+
+  /**
+   * Monotonically-increasing key incremented each time the user presses
+   * "Start Engaging". The effect in main.tsx depends on this (not phase)
+   * so it only fires once per session, preventing repeated fetchAllFollowers calls.
+   */
+  readonly sessionKey: number;
   
   readonly targetGroup: 'followers' | 'following' | 'mutuals' | 'non_mutuals' | 'reciprocal';
   
