@@ -751,12 +751,13 @@ const GLOBAL_ACTIVITIES_QUERY = `
         hasNextPage
         perPage
       }
-      activities(isFollowing: false, sort: ID_DESC, type_in: [TEXT, MEDIA_LIST, ANIME_LIST, MANGA_LIST]) {
+      activities(isFollowing: false, sort: ID_DESC, hasRepliesOrTypeText: true, type_in: [TEXT, MEDIA_LIST, ANIME_LIST, MANGA_LIST]) {
         __typename
         ... on ListActivity {
           id
           userId
           likeCount
+          isLiked
           user {
             id
             name
@@ -770,6 +771,7 @@ const GLOBAL_ACTIVITIES_QUERY = `
           id
           userId
           likeCount
+          isLiked
           user {
             id
             name
@@ -1067,8 +1069,8 @@ export async function runEngagementSession(
       if (isCancelled?.()) break outer;
       if (progress.liked >= GLOBAL_FEED_MAX_LIKES_PER_SESSION) break outer;
 
-      // Filter: must meet minimum like threshold
-      if ((activity.likeCount ?? 0) < GLOBAL_FEED_MIN_LIKES) {
+      // Filter: must meet minimum like threshold and not be already liked
+      if (activity.isLiked || (activity.likeCount ?? 0) < GLOBAL_FEED_MIN_LIKES) {
         progress.skipped++;
         continue;
       }
