@@ -1431,6 +1431,20 @@ export async function fetchRecentLikers(
 /**
  * Runs the targeted engagement session.
  */
+/**
+ * Auto-select the optimal batch size for targeted engagement
+ * based on the number of resolved target users.
+ *
+ * Only used by Targeted Engagement — all other features (unfollow batcher,
+ * global feed engagement, network follow) remain hardcoded at % 5.
+ */
+export function selectOptimalBatchSize(resolvedUserCount: number): 5 | 10 | 15 | 20 {
+  if (resolvedUserCount <= 25)  return 20;
+  if (resolvedUserCount <= 75)  return 15;
+  if (resolvedUserCount <= 150) return 10;
+  return 5;
+}
+
 export async function runTargetedEngagementSession(
   targetUsers: readonly RawUserNode[],
   config: {

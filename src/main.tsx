@@ -28,7 +28,7 @@ import { getRecentFollows } from "./utils/follow-history-manager";
 import { getUnfollowCandidates } from "./utils/auto-unfollow-logic";
 import { recordScriptRun, getSessionStats } from "./utils/session-guard";
 import { getStoredToken, loadOrFetchViewer, getStoredViewer } from "./utils/anilist-auth";
-import { executeBatchedActions, fetchAllFollowers, fetchAllFollowing, fetchRecentLikers, fetchUserByName, mergeFollowLists, runEngagementSession, runNetworkFollowSession, runTargetedEngagementSession, sleep, enrichFollowHistoryWithActivity } from "./utils/anilist-api";
+import { executeBatchedActions, fetchAllFollowers, fetchAllFollowing, fetchRecentLikers, fetchUserByName, mergeFollowLists, runEngagementSession, runNetworkFollowSession, runTargetedEngagementSession, selectOptimalBatchSize, sleep, enrichFollowHistoryWithActivity } from "./utils/anilist-api";
 import { loadFollowHistory } from "./utils/follow-history-manager";
 import { syncFollowHistoryFromFollowingList } from "./utils/follow-date-sync";
 
@@ -517,12 +517,18 @@ function App() {
         // Apply maxUsers limit
         targetUsers = targetUsers.slice(0, config.maxUsers);
 
+        // Auto-select optimal batch size based on resolved user count
+        const optimalBatch = selectOptimalBatchSize(targetUsers.length);
+
+        // Flash the chosen batch size to the user for 2 seconds before starting
         setState(prev => prev.status === 'targeted_engagement' ? {
           ...prev,
-          phase: `Starting engagement for ${targetUsers.length} users...`,
+          phase: `Resolved ${targetUsers.length} users — using batch size ${optimalBatch}`,
+          resolvedBatchSize: optimalBatch,
           progress: { processedUsers: 0, totalUsers: targetUsers.length, likedActivities: 0, skippedActivities: 0 }
         } : prev);
 
+        await sleep(2000);
         if (cancelled) return;
 
         await runTargetedEngagementSession(
@@ -530,7 +536,7 @@ function App() {
           {
             activitiesPerUser: config.activitiesPerUser,
             includeMessages: config.includeMessages,
-            batchSize: config.batchSize ?? 5,
+            batchSize: optimalBatch,
           },
           {
             betweenActions: timings.timeBetweenActions,
@@ -655,7 +661,7 @@ function App() {
             onScan={onScan} 
             onEngage={() => setState({ status: 'engaging', phase: 'Starting engagement...', liked: 0, followed: 0, skipped: 0 })}
             onNetworkFollow={() => setState({ status: 'network_following', targetUsername: '', mode: 'followers', phase: '', followed: 0, skipped: 0, total: 0, lifetimeFollowed: 0, exactTotal: undefined })}
-            onTargetedEngagement={() => setState({ status: 'targeted_engagement', phase: '', sessionKey: 0, targetGroup: 'followers', config: { maxUsers: 50, activitiesPerUser: 2, includeMessages: false, batchSize: 5, reciprocalHours: 24, reciprocalMinLikes: 2 }, progress: { processedUsers: 0, totalUsers: 0, likedActivities: 0, skippedActivities: 0 } })}
+            onTargetedEngagement={() => setState({ status: 'targeted_engagement', phase: '', sessionKey: 0, targetGroup: 'followers', config: { maxUsers: 50, activitiesPerUser: 2, includeMessages: false, reciprocalHours: 24, reciprocalMinLikes: 2 }, resolvedBatchSize: undefined, progress: { processedUsers: 0, totalUsers: 0, likedActivities: 0, skippedActivities: 0 } })}
           />
         )}
         

@@ -151,11 +151,13 @@ type TargetedEngagementState = {
     maxUsers: number;
     activitiesPerUser: number;
     includeMessages: boolean;
-    batchSize: 5 | 10 | 15 | 20;
     // Specific to reciprocal
     reciprocalHours?: number;
     reciprocalMinLikes?: number;
   };
+
+  /** Auto-selected batch size, determined after resolving target users. Undefined until session starts. */
+  readonly resolvedBatchSize?: 5 | 10 | 15 | 20;
 
   /** Real-time progress. */
   readonly progress: {
