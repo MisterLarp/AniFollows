@@ -517,8 +517,8 @@ function App() {
         // Apply maxUsers limit
         targetUsers = targetUsers.slice(0, config.maxUsers);
 
-        // Auto-select optimal batch size based on resolved user count
-        const optimalBatch = selectOptimalBatchSize(targetUsers.length);
+        // Auto-select optimal batch size based on total workload
+        const optimalBatch = selectOptimalBatchSize(targetUsers.length, config.activitiesPerUser);
 
         // Flash the chosen batch size to the user for 2 seconds before starting
         setState(prev => prev.status === 'targeted_engagement' ? {

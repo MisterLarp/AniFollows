@@ -1433,16 +1433,17 @@ export async function fetchRecentLikers(
  */
 /**
  * Auto-select the optimal batch size for targeted engagement
- * based on the number of resolved target users.
+ * based on total workload (userCount × activitiesPerUser).
  *
  * Only used by Targeted Engagement — all other features (unfollow batcher,
  * global feed engagement, network follow) remain hardcoded at % 5.
  */
-export function selectOptimalBatchSize(resolvedUserCount: number): 5 | 10 | 15 | 20 {
-  if (resolvedUserCount <= 25)  return 20;
-  if (resolvedUserCount <= 75)  return 15;
-  if (resolvedUserCount <= 150) return 10;
-  return 5;
+export function selectOptimalBatchSize(userCount: number, activitiesPerUser: number): 5 | 10 | 15 | 20 {
+  const totalLikes = userCount * activitiesPerUser;
+  if (totalLikes <= 50)  return 20; // ~1–3 cooldowns max, very fast
+  if (totalLikes <= 150) return 15; // moderate session
+  if (totalLikes <= 300) return 10; // large session, conservative
+  return 5;                         // very large sessions, safest
 }
 
 export async function runTargetedEngagementSession(
