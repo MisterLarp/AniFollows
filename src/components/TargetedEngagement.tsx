@@ -114,7 +114,7 @@ export const TargetedEngagement = ({ state, onStart, onCancel }: TargetedEngagem
       <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
         Targeted Engagement
         <span
-          title="Batch size is automatically chosen based on total workload (users × activities per user). ≤50 total likes → batch 20 (fast). 51–150 → batch 15. 151–300 → batch 10. 300+ → batch 5 (safest). Keeps you well under AniList's 90 req/min limit."
+          title="Batch size is automatically chosen based on total workload (users × activities per user). ≤100 total likes → batch 20 (fast). 101–300 → batch 15. 301–1000 → batch 10. 1000+ → batch 5 (safest). Keeps you well under AniList's 90 req/min limit."
           style={{
             display: 'inline-flex',
             alignItems: 'center',

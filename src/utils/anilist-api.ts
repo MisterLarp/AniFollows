@@ -1440,10 +1440,10 @@ export async function fetchRecentLikers(
  */
 export function selectOptimalBatchSize(userCount: number, activitiesPerUser: number): 5 | 10 | 15 | 20 {
   const totalLikes = userCount * activitiesPerUser;
-  if (totalLikes <= 50)  return 20; // ~1–3 cooldowns max, very fast
-  if (totalLikes <= 150) return 15; // moderate session
-  if (totalLikes <= 300) return 10; // large session, conservative
-  return 5;                         // very large sessions, safest
+  if (totalLikes <= 100)  return 20; // small session, very fast
+  if (totalLikes <= 300)  return 15; // moderate session
+  if (totalLikes <= 1000) return 10; // large session, safe
+  return 5;                          // extreme sessions (1000+ likes), safest
 }
 
 export async function runTargetedEngagementSession(
