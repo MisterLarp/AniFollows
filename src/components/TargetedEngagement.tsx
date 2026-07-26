@@ -10,6 +10,24 @@ function formatCooldown(ms: number): string {
   return `${secs}s`;
 }
 
+type BatchSize = 5 | 10 | 15 | 20;
+
+interface BatchOption {
+  value: BatchSize;
+  label: string;
+  color: string;
+  bg: string;
+  border: string;
+  warn?: boolean;
+}
+
+const BATCH_OPTIONS: BatchOption[] = [
+  { value: 5,  label: '5',  color: '#34c759', bg: 'rgba(52,199,89,0.10)',   border: 'rgba(52,199,89,0.35)'   },
+  { value: 10, label: '10', color: '#34c759', bg: 'rgba(52,199,89,0.10)',   border: 'rgba(52,199,89,0.35)'   },
+  { value: 15, label: '15', color: '#ffd60a', bg: 'rgba(255,214,10,0.10)',  border: 'rgba(255,214,10,0.35)'  },
+  { value: 20, label: '20', color: '#ff453a', bg: 'rgba(255,69,58,0.10)',   border: 'rgba(255,69,58,0.35)',  warn: true },
+];
+
 interface TargetedEngagementProps {
   state: TargetedEngagementState;
   onStart: (
@@ -26,6 +44,7 @@ export const TargetedEngagement = ({ state, onStart, onCancel }: TargetedEngagem
   const [includeMessages, setIncludeMessages] = useState<boolean>(false);
   const [reciprocalHours, setReciprocalHours] = useState<number>(24);
   const [reciprocalMinLikes, setReciprocalMinLikes] = useState<number>(2);
+  const [batchSize, setBatchSize] = useState<BatchSize>(5);
 
   const isConfiguring = !state.phase;
 
@@ -35,6 +54,7 @@ export const TargetedEngagement = ({ state, onStart, onCancel }: TargetedEngagem
       maxUsers,
       activitiesPerUser,
       includeMessages,
+      batchSize,
       reciprocalHours,
       reciprocalMinLikes
     });
@@ -163,6 +183,64 @@ export const TargetedEngagement = ({ state, onStart, onCancel }: TargetedEngagem
             value={activitiesPerUser}
             onChange={(e) => setActivitiesPerUser(parseInt((e.target as HTMLInputElement).value, 10))}
           />
+        </div>
+
+        {/* ── Universal Setting: Batch Size ─────────────────────────────────── */}
+        <div className="form-group" style={{ marginTop: '1.5rem' }}>
+          <label style={{ marginBottom: '0.6rem', display: 'block' }}>
+            Likes per Batch
+            <span style={{ fontWeight: 400, fontSize: '0.8rem', color: 'hsla(0,0%,100%,0.45)', marginLeft: '0.5rem' }}>
+              — cooldown triggers after this many likes
+            </span>
+          </label>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {BATCH_OPTIONS.map((opt) => {
+              const selected = batchSize === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setBatchSize(opt.value)}
+                  style={{
+                    flex: '1',
+                    minWidth: '60px',
+                    padding: '0.6rem 0.5rem',
+                    borderRadius: '8px',
+                    border: `1.5px solid ${selected ? opt.border : 'hsla(0,0%,100%,0.12)'}`,
+                    background: selected ? opt.bg : 'hsla(0,0%,100%,0.04)',
+                    color: selected ? opt.color : 'hsla(0,0%,100%,0.55)',
+                    fontWeight: selected ? 700 : 400,
+                    fontSize: '0.95rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    position: 'relative',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.3rem',
+                  }}
+                >
+                  {opt.warn && (
+                    <span
+                      style={{
+                        fontSize: '0.8rem',
+                        animation: selected ? 'blink 1s step-start infinite' : 'none',
+                      }}
+                    >
+                      ⚠️
+                    </span>
+                  )}
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: 'hsla(0,0%,100%,0.4)', lineHeight: '1.4' }}>
+            {batchSize === 5  && '✅ Very safe — recommended for continuous use.'}
+            {batchSize === 10 && '✅ Safe — good balance of speed and safety.'}
+            {batchSize === 15 && '🟡 Moderate — use carefully if running other features.'}
+            {batchSize === 20 && '⚠️ Aggressive — may approach AniList rate limits if multiple features are running simultaneously.'}
+          </div>
         </div>
 
         <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '1.5rem' }}>

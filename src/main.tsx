@@ -530,6 +530,7 @@ function App() {
           {
             activitiesPerUser: config.activitiesPerUser,
             includeMessages: config.includeMessages,
+            batchSize: config.batchSize ?? 5,
           },
           {
             betweenActions: timings.timeBetweenActions,
@@ -654,7 +655,7 @@ function App() {
             onScan={onScan} 
             onEngage={() => setState({ status: 'engaging', phase: 'Starting engagement...', liked: 0, followed: 0, skipped: 0 })}
             onNetworkFollow={() => setState({ status: 'network_following', targetUsername: '', mode: 'followers', phase: '', followed: 0, skipped: 0, total: 0, lifetimeFollowed: 0, exactTotal: undefined })}
-            onTargetedEngagement={() => setState({ status: 'targeted_engagement', phase: '', sessionKey: 0, targetGroup: 'followers', config: { maxUsers: 50, activitiesPerUser: 2, includeMessages: false, reciprocalHours: 24, reciprocalMinLikes: 2 }, progress: { processedUsers: 0, totalUsers: 0, likedActivities: 0, skippedActivities: 0 } })}
+            onTargetedEngagement={() => setState({ status: 'targeted_engagement', phase: '', sessionKey: 0, targetGroup: 'followers', config: { maxUsers: 50, activitiesPerUser: 2, includeMessages: false, batchSize: 5, reciprocalHours: 24, reciprocalMinLikes: 2 }, progress: { processedUsers: 0, totalUsers: 0, likedActivities: 0, skippedActivities: 0 } })}
           />
         )}
         

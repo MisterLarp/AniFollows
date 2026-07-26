@@ -1436,6 +1436,7 @@ export async function runTargetedEngagementSession(
   config: {
     activitiesPerUser: number;
     includeMessages: boolean;
+    batchSize: number;
   },
   timings: Partial<BatcherTimings>,
   token: string,
@@ -1468,9 +1469,9 @@ export async function runTargetedEngagementSession(
         if (isCancelled()) break;
         if (likedForThisUser >= config.activitiesPerUser) break;
 
-        // Apply 5-action batch rule with pacing
+        // Apply batch rule: pause after every batchSize actions
         if (actionCount > 0) {
-          if (actionCount % 5 === 0) {
+          if (actionCount % config.batchSize === 0) {
             const cooldownMs = timing.afterFiveBatch + jitter(5_000);
             onProgress({
               phase: 'Cooling down (5-min batch pause)...',

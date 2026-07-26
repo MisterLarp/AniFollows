@@ -151,6 +151,7 @@ type TargetedEngagementState = {
     maxUsers: number;
     activitiesPerUser: number;
     includeMessages: boolean;
+    batchSize: 5 | 10 | 15 | 20;
     // Specific to reciprocal
     reciprocalHours?: number;
     reciprocalMinLikes?: number;
